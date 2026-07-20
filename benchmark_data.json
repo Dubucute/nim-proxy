@@ -1,0 +1,1552 @@
+{
+  "lastUpdated": "2026-07-15T15:45:38.056533+00:00",
+  "proxyUrl": "https://dubu.alwaysdata.net/v1",
+  "totalModelsTested": 90,
+  "modelsWorking": 34,
+  "modelsFailed": 56,
+  "rankings": [
+    {
+      "rank": 1,
+      "model": "nvidia/nemotron-3-nano-30b-a3b",
+      "params": 30,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 2.4,
+        "rank": "medium"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 8925
+    },
+    {
+      "rank": 2,
+      "model": "nvidia/nemotron-nano-12b-v2-vl",
+      "params": 12,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 2.68,
+        "rank": "medium"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 8793
+    },
+    {
+      "rank": 3,
+      "model": "mistralai/mistral-large-3-675b-instruct-2512",
+      "params": 675,
+      "family": "Mistral",
+      "speed": {
+        "responseTimeSec": 2.93,
+        "rank": "medium"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 8691
+    },
+    {
+      "rank": 4,
+      "model": "meta/llama-3.1-8b-instruct",
+      "params": 8,
+      "family": "Llama",
+      "speed": {
+        "responseTimeSec": 3.03,
+        "rank": "medium"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 8654
+    },
+    {
+      "rank": 5,
+      "model": "openai/gpt-oss-20b",
+      "params": 20,
+      "family": "OpenAI-OSS",
+      "speed": {
+        "responseTimeSec": 3.37,
+        "rank": "medium"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 8541
+    },
+    {
+      "rank": 6,
+      "model": "upstage/solar-10.7b-instruct",
+      "params": 10.7,
+      "family": "Upstage",
+      "speed": {
+        "responseTimeSec": 3.61,
+        "rank": "medium"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 8467
+    },
+    {
+      "rank": 7,
+      "model": "mistralai/mistral-nemotron",
+      "params": 0,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 3.65,
+        "rank": "medium"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 8457
+    },
+    {
+      "rank": 8,
+      "model": "google/gemma-2-2b-it",
+      "params": 2,
+      "family": "Gemma",
+      "speed": {
+        "responseTimeSec": 1.23,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "4/5",
+        "percentage": 80,
+        "tasksPassed": 4
+      },
+      "combinedScore": 8345
+    },
+    {
+      "rank": 9,
+      "model": "nvidia/nemotron-3-ultra-550b-a55b",
+      "params": 550,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 4.24,
+        "rank": "medium"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 8306
+    },
+    {
+      "rank": 10,
+      "model": "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+      "params": 8,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 4.32,
+        "rank": "medium"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 8289
+    },
+    {
+      "rank": 11,
+      "model": "meta/llama-3.2-11b-vision-instruct",
+      "params": 1,
+      "family": "Llama",
+      "speed": {
+        "responseTimeSec": 4.8,
+        "rank": "medium"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 8190
+    },
+    {
+      "rank": 12,
+      "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "params": 30,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 5.16,
+        "rank": "slow"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 8126
+    },
+    {
+      "rank": 13,
+      "model": "nvidia/nemotron-mini-4b-instruct",
+      "params": 4,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 1.52,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "4/5",
+        "percentage": 80,
+        "tasksPassed": 4
+      },
+      "combinedScore": 8087
+    },
+    {
+      "rank": 14,
+      "model": "mistralai/mixtral-8x7b-instruct-v0.1",
+      "params": 7,
+      "family": "Mistral",
+      "speed": {
+        "responseTimeSec": 6.47,
+        "rank": "slow"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 7941
+    },
+    {
+      "rank": 15,
+      "model": "mistralai/mistral-small-4-119b-2603",
+      "params": 119,
+      "family": "Mistral",
+      "speed": {
+        "responseTimeSec": 6.65,
+        "rank": "slow"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 7920
+    },
+    {
+      "rank": 16,
+      "model": "meta/llama-3.2-1b-instruct",
+      "params": 1,
+      "family": "Llama",
+      "speed": {
+        "responseTimeSec": 6.67,
+        "rank": "slow"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 7918
+    },
+    {
+      "rank": 17,
+      "model": "abacusai/dracarys-llama-3.1-70b-instruct",
+      "params": 70,
+      "family": "Llama",
+      "speed": {
+        "responseTimeSec": 6.99,
+        "rank": "slow"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 7883
+    },
+    {
+      "rank": 18,
+      "model": "meta/llama-3.1-70b-instruct",
+      "params": 70,
+      "family": "Llama",
+      "speed": {
+        "responseTimeSec": 10.09,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 7647
+    },
+    {
+      "rank": 19,
+      "model": "nvidia/nemotron-3-super-120b-a12b",
+      "params": 120,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 10.47,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 7627
+    },
+    {
+      "rank": 20,
+      "model": "google/gemma-3n-e2b-it",
+      "params": 2,
+      "family": "Gemma",
+      "speed": {
+        "responseTimeSec": 10.52,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 7624
+    },
+    {
+      "rank": 21,
+      "model": "google/gemma-3n-e4b-it",
+      "params": 4,
+      "family": "Gemma",
+      "speed": {
+        "responseTimeSec": 12.87,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 7522
+    },
+    {
+      "rank": 22,
+      "model": "nvidia/llama-3.3-nemotron-super-49b-v1",
+      "params": 49,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 13.63,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 7496
+    },
+    {
+      "rank": 23,
+      "model": "sarvamai/sarvam-m",
+      "params": 0,
+      "family": "Sarvam",
+      "speed": {
+        "responseTimeSec": 16.1,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 7426
+    },
+    {
+      "rank": 24,
+      "model": "mistralai/mistral-medium-3.5-128b",
+      "params": 128,
+      "family": "Mistral",
+      "speed": {
+        "responseTimeSec": 24.08,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 7293
+    },
+    {
+      "rank": 25,
+      "model": "meta/llama-3.3-70b-instruct",
+      "params": 70,
+      "family": "Llama",
+      "speed": {
+        "responseTimeSec": 47.73,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "5/5",
+        "percentage": 100,
+        "tasksPassed": 5
+      },
+      "combinedScore": 7152
+    },
+    {
+      "rank": 26,
+      "model": "nvidia/llama-3.1-nemotron-nano-8b-v1",
+      "params": 8,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 7.58,
+        "rank": "slow"
+      },
+      "coding": {
+        "score": "4/5",
+        "percentage": 80,
+        "tasksPassed": 4
+      },
+      "combinedScore": 6426
+    },
+    {
+      "rank": 27,
+      "model": "deepseek-ai/deepseek-v4-flash",
+      "params": 0,
+      "family": "DeepSeek",
+      "speed": {
+        "responseTimeSec": 48.34,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "4/5",
+        "percentage": 80,
+        "tasksPassed": 4
+      },
+      "combinedScore": 5750
+    },
+    {
+      "rank": 28,
+      "model": "stepfun-ai/step-3.5-flash",
+      "params": 0,
+      "family": "StepFun",
+      "speed": {
+        "responseTimeSec": 4.65,
+        "rank": "medium"
+      },
+      "coding": {
+        "score": "3/5",
+        "percentage": 60,
+        "tasksPassed": 3
+      },
+      "combinedScore": 5419
+    },
+    {
+      "rank": 29,
+      "model": "qwen/qwen3.5-122b-a10b",
+      "params": 122,
+      "family": "Qwen",
+      "speed": {
+        "responseTimeSec": 13.99,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "3/5",
+        "percentage": 60,
+        "tasksPassed": 3
+      },
+      "combinedScore": 4684
+    },
+    {
+      "rank": 30,
+      "model": "openai/gpt-oss-120b",
+      "params": 120,
+      "family": "OpenAI-OSS",
+      "speed": {
+        "responseTimeSec": 105.45,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "2/5",
+        "percentage": 40,
+        "tasksPassed": 2
+      },
+      "combinedScore": 2870
+    },
+    {
+      "rank": 31,
+      "model": "stepfun-ai/step-3.7-flash",
+      "params": 0,
+      "family": "StepFun",
+      "speed": {
+        "responseTimeSec": 9.7,
+        "rank": "slow"
+      },
+      "coding": {
+        "score": "1/5",
+        "percentage": 20,
+        "tasksPassed": 1
+      },
+      "combinedScore": 2070
+    },
+    {
+      "rank": 32,
+      "model": "minimaxai/minimax-m2.7",
+      "params": 0,
+      "family": "MiniMax",
+      "speed": {
+        "responseTimeSec": 88.68,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "1/5",
+        "percentage": 20,
+        "tasksPassed": 1
+      },
+      "combinedScore": 1483
+    },
+    {
+      "rank": 33,
+      "model": "nvidia/nemotron-4-340b-reward",
+      "params": 340,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 0.43,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 34,
+      "model": "nvidia/nemotron-4-340b-instruct",
+      "params": 340,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 0.44,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 35,
+      "model": "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+      "params": 253,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 0.3,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 36,
+      "model": "writer/palmyra-creative-122b",
+      "params": 122,
+      "family": "Writer",
+      "speed": {
+        "responseTimeSec": 0.33,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 37,
+      "model": "meta/codellama-70b",
+      "params": 70,
+      "family": "Llama",
+      "speed": {
+        "responseTimeSec": 0.31,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 38,
+      "model": "meta/llama2-70b",
+      "params": 70,
+      "family": "Llama",
+      "speed": {
+        "responseTimeSec": 0.33,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 39,
+      "model": "nvidia/llama-3.1-nemotron-70b-instruct",
+      "params": 70,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 0.33,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 40,
+      "model": "nvidia/llama3-chatqa-1.5-70b",
+      "params": 70,
+      "family": "Llama",
+      "speed": {
+        "responseTimeSec": 0.34,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 41,
+      "model": "writer/palmyra-fin-70b-32k",
+      "params": 70,
+      "family": "Writer",
+      "speed": {
+        "responseTimeSec": 0.32,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 42,
+      "model": "writer/palmyra-med-70b",
+      "params": 70,
+      "family": "Writer",
+      "speed": {
+        "responseTimeSec": 0.33,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 43,
+      "model": "writer/palmyra-med-70b-32k",
+      "params": 70,
+      "family": "Writer",
+      "speed": {
+        "responseTimeSec": 0.34,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 44,
+      "model": "nvidia/llama-3.1-nemotron-51b-instruct",
+      "params": 51,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 0.37,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 45,
+      "model": "qwen/qwen3.5-397b-a17b",
+      "params": 397,
+      "family": "Qwen",
+      "speed": {
+        "responseTimeSec": 121.78,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 46,
+      "model": "ibm/granite-34b-code-instruct",
+      "params": 34,
+      "family": "IBM",
+      "speed": {
+        "responseTimeSec": 0.47,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 47,
+      "model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+      "params": 49,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 19.54,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 48,
+      "model": "nvidia/nemotron-nano-3-30b-a3b",
+      "params": 30,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 0.44,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 49,
+      "model": "mistralai/codestral-22b-instruct-v0.1",
+      "params": 22,
+      "family": "Mistral",
+      "speed": {
+        "responseTimeSec": 0.35,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 50,
+      "model": "mistralai/mixtral-8x22b-v0.1",
+      "params": 22,
+      "family": "Mistral",
+      "speed": {
+        "responseTimeSec": 0.43,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 51,
+      "model": "nvidia/neva-22b",
+      "params": 22,
+      "family": "NVIDIA",
+      "speed": {
+        "responseTimeSec": 0.31,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 52,
+      "model": "meta/llama-3.2-90b-vision-instruct",
+      "params": 90,
+      "family": "Llama",
+      "speed": {
+        "responseTimeSec": 121.28,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 53,
+      "model": "bigcode/starcoder2-15b",
+      "params": 15,
+      "family": "StarCoder",
+      "speed": {
+        "responseTimeSec": 0.27,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 54,
+      "model": "qwen/qwen3-next-80b-a3b-instruct",
+      "params": 80,
+      "family": "Qwen",
+      "speed": {
+        "responseTimeSec": 121.19,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 55,
+      "model": "google/gemma-3-12b-it",
+      "params": 12,
+      "family": "Gemma",
+      "speed": {
+        "responseTimeSec": 0.44,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 56,
+      "model": "nv-mistralai/mistral-nemo-12b-instruct",
+      "params": 12,
+      "family": "Mistral",
+      "speed": {
+        "responseTimeSec": 2.95,
+        "rank": "medium"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 57,
+      "model": "nvidia/nvidia-nemotron-nano-9b-v2",
+      "params": 9,
+      "family": "Nemotron",
+      "speed": {
+        "responseTimeSec": 11.69,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 58,
+      "model": "adept/fuyu-8b",
+      "params": 8,
+      "family": "Adept",
+      "speed": {
+        "responseTimeSec": 0.33,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 59,
+      "model": "ibm/granite-3.0-8b-instruct",
+      "params": 8,
+      "family": "IBM",
+      "speed": {
+        "responseTimeSec": 0.32,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 60,
+      "model": "ibm/granite-8b-code-instruct",
+      "params": 8,
+      "family": "IBM",
+      "speed": {
+        "responseTimeSec": 0.33,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 61,
+      "model": "nvidia/mistral-nemo-minitron-8b-8k-instruct",
+      "params": 8,
+      "family": "Mistral",
+      "speed": {
+        "responseTimeSec": 0.35,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 62,
+      "model": "aisingapore/sea-lion-7b-instruct",
+      "params": 7,
+      "family": "AI Singapore",
+      "speed": {
+        "responseTimeSec": 0.35,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 63,
+      "model": "google/codegemma-1.1-7b",
+      "params": 7,
+      "family": "Gemma",
+      "speed": {
+        "responseTimeSec": 0.33,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 64,
+      "model": "google/codegemma-7b",
+      "params": 7,
+      "family": "Gemma",
+      "speed": {
+        "responseTimeSec": 0.32,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 65,
+      "model": "mistralai/mistral-7b-instruct-v0.3",
+      "params": 7,
+      "family": "Mistral",
+      "speed": {
+        "responseTimeSec": 0.39,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 66,
+      "model": "zyphra/zamba2-7b-instruct",
+      "params": 7,
+      "family": "Zyphra",
+      "speed": {
+        "responseTimeSec": 2.08,
+        "rank": "medium"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 67,
+      "model": "deepseek-ai/deepseek-coder-6.7b-instruct",
+      "params": 6.7,
+      "family": "DeepSeek",
+      "speed": {
+        "responseTimeSec": 1.92,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 68,
+      "model": "google/gemma-3-4b-it",
+      "params": 4,
+      "family": "Gemma",
+      "speed": {
+        "responseTimeSec": 0.36,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 69,
+      "model": "ibm/granite-3.0-3b-a800m-instruct",
+      "params": 3,
+      "family": "IBM",
+      "speed": {
+        "responseTimeSec": 0.35,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 70,
+      "model": "bytedance/seed-oss-36b-instruct",
+      "params": 36,
+      "family": "ByteDance",
+      "speed": {
+        "responseTimeSec": 121.24,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 71,
+      "model": "google/gemma-2b",
+      "params": 2,
+      "family": "Gemma",
+      "speed": {
+        "responseTimeSec": 0.32,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 72,
+      "model": "google/recurrentgemma-2b",
+      "params": 2,
+      "family": "Gemma",
+      "speed": {
+        "responseTimeSec": 0.32,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 73,
+      "model": "google/gemma-4-31b-it",
+      "params": 31,
+      "family": "Gemma",
+      "speed": {
+        "responseTimeSec": 121.17,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 74,
+      "model": "microsoft/kosmos-2",
+      "params": 2,
+      "family": "Other",
+      "speed": {
+        "responseTimeSec": 0.33,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 75,
+      "model": "01-ai/yi-large",
+      "params": 0,
+      "family": "Yi",
+      "speed": {
+        "responseTimeSec": 0.33,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 76,
+      "model": "ai21labs/jamba-1.5-large-instruct",
+      "params": 0,
+      "family": "AI21",
+      "speed": {
+        "responseTimeSec": 0.34,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 77,
+      "model": "databricks/dbrx-instruct",
+      "params": 0,
+      "family": "Databricks",
+      "speed": {
+        "responseTimeSec": 0.34,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 78,
+      "model": "meta/llama-4-maverick-17b-128e-instruct",
+      "params": 17,
+      "family": "Llama",
+      "speed": {
+        "responseTimeSec": 121.26,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 79,
+      "model": "google/deplot",
+      "params": 0,
+      "family": "Other",
+      "speed": {
+        "responseTimeSec": 0.5,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 80,
+      "model": "microsoft/phi-3-vision-128k-instruct",
+      "params": 0,
+      "family": "Phi",
+      "speed": {
+        "responseTimeSec": 0.37,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 81,
+      "model": "microsoft/phi-3.5-moe-instruct",
+      "params": 0,
+      "family": "Phi",
+      "speed": {
+        "responseTimeSec": 0.4,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 82,
+      "model": "mistralai/ministral-14b-instruct-2512",
+      "params": 14,
+      "family": "Mistral",
+      "speed": {
+        "responseTimeSec": 121.36,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 83,
+      "model": "minimaxai/minimax-m3",
+      "params": 0,
+      "family": "MiniMax",
+      "speed": {
+        "responseTimeSec": 1.01,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 84,
+      "model": "mistralai/mistral-large",
+      "params": 0,
+      "family": "Mistral",
+      "speed": {
+        "responseTimeSec": 0.43,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 85,
+      "model": "mistralai/mistral-large-2-instruct",
+      "params": 0,
+      "family": "Mistral",
+      "speed": {
+        "responseTimeSec": 0.33,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 86,
+      "model": "moonshotai/kimi-k2.6",
+      "params": 0,
+      "family": "Moonshot",
+      "speed": {
+        "responseTimeSec": 5.01,
+        "rank": "slow"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 87,
+      "model": "nvidia/vila",
+      "params": 0,
+      "family": "NVIDIA",
+      "speed": {
+        "responseTimeSec": 0.43,
+        "rank": "fast"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 88,
+      "model": "meta/llama-3.2-3b-instruct",
+      "params": 3,
+      "family": "Llama",
+      "speed": {
+        "responseTimeSec": 121.16,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 89,
+      "model": "deepseek-ai/deepseek-v4-pro",
+      "params": 0,
+      "family": "DeepSeek",
+      "speed": {
+        "responseTimeSec": 121.11,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    },
+    {
+      "rank": 90,
+      "model": "z-ai/glm-5.2",
+      "params": 0,
+      "family": "Z-AI",
+      "speed": {
+        "responseTimeSec": 121.18,
+        "rank": "very_slow"
+      },
+      "coding": {
+        "score": "0/5",
+        "percentage": 0,
+        "tasksPassed": 0
+      },
+      "combinedScore": 0
+    }
+  ],
+  "categories": {
+    "codingExperts": [
+      "nvidia/nemotron-3-nano-30b-a3b",
+      "nvidia/nemotron-nano-12b-v2-vl",
+      "mistralai/mistral-large-3-675b-instruct-2512",
+      "meta/llama-3.1-8b-instruct",
+      "openai/gpt-oss-20b",
+      "upstage/solar-10.7b-instruct",
+      "mistralai/mistral-nemotron",
+      "google/gemma-2-2b-it",
+      "nvidia/nemotron-3-ultra-550b-a55b",
+      "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+      "meta/llama-3.2-11b-vision-instruct",
+      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "nvidia/nemotron-mini-4b-instruct",
+      "mistralai/mixtral-8x7b-instruct-v0.1",
+      "mistralai/mistral-small-4-119b-2603",
+      "meta/llama-3.2-1b-instruct",
+      "abacusai/dracarys-llama-3.1-70b-instruct",
+      "meta/llama-3.1-70b-instruct",
+      "nvidia/nemotron-3-super-120b-a12b",
+      "google/gemma-3n-e2b-it",
+      "google/gemma-3n-e4b-it",
+      "nvidia/llama-3.3-nemotron-super-49b-v1",
+      "sarvamai/sarvam-m",
+      "mistralai/mistral-medium-3.5-128b",
+      "meta/llama-3.3-70b-instruct",
+      "nvidia/llama-3.1-nemotron-nano-8b-v1",
+      "deepseek-ai/deepseek-v4-flash"
+    ],
+    "fastest": [
+      "google/gemma-2-2b-it",
+      "nvidia/nemotron-mini-4b-instruct",
+      "nvidia/nemotron-4-340b-reward",
+      "nvidia/nemotron-4-340b-instruct",
+      "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+      "writer/palmyra-creative-122b",
+      "meta/codellama-70b",
+      "meta/llama2-70b",
+      "nvidia/llama-3.1-nemotron-70b-instruct",
+      "nvidia/llama3-chatqa-1.5-70b",
+      "writer/palmyra-fin-70b-32k",
+      "writer/palmyra-med-70b",
+      "writer/palmyra-med-70b-32k",
+      "nvidia/llama-3.1-nemotron-51b-instruct",
+      "ibm/granite-34b-code-instruct",
+      "nvidia/nemotron-nano-3-30b-a3b",
+      "mistralai/codestral-22b-instruct-v0.1",
+      "mistralai/mixtral-8x22b-v0.1",
+      "nvidia/neva-22b",
+      "bigcode/starcoder2-15b",
+      "google/gemma-3-12b-it",
+      "adept/fuyu-8b",
+      "ibm/granite-3.0-8b-instruct",
+      "ibm/granite-8b-code-instruct",
+      "nvidia/mistral-nemo-minitron-8b-8k-instruct",
+      "aisingapore/sea-lion-7b-instruct",
+      "google/codegemma-1.1-7b",
+      "google/codegemma-7b",
+      "mistralai/mistral-7b-instruct-v0.3",
+      "deepseek-ai/deepseek-coder-6.7b-instruct",
+      "google/gemma-3-4b-it",
+      "ibm/granite-3.0-3b-a800m-instruct",
+      "google/gemma-2b",
+      "google/recurrentgemma-2b",
+      "microsoft/kosmos-2",
+      "01-ai/yi-large",
+      "ai21labs/jamba-1.5-large-instruct",
+      "databricks/dbrx-instruct",
+      "google/deplot",
+      "microsoft/phi-3-vision-128k-instruct",
+      "microsoft/phi-3.5-moe-instruct",
+      "minimaxai/minimax-m3",
+      "mistralai/mistral-large",
+      "mistralai/mistral-large-2-instruct",
+      "nvidia/vila"
+    ],
+    "smartest": [
+      "nvidia/nemotron-3-nano-30b-a3b",
+      "nvidia/nemotron-nano-12b-v2-vl",
+      "mistralai/mistral-large-3-675b-instruct-2512",
+      "meta/llama-3.1-8b-instruct",
+      "openai/gpt-oss-20b",
+      "upstage/solar-10.7b-instruct",
+      "mistralai/mistral-nemotron",
+      "nvidia/nemotron-3-ultra-550b-a55b",
+      "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+      "meta/llama-3.2-11b-vision-instruct",
+      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "mistralai/mixtral-8x7b-instruct-v0.1",
+      "mistralai/mistral-small-4-119b-2603",
+      "meta/llama-3.2-1b-instruct",
+      "abacusai/dracarys-llama-3.1-70b-instruct",
+      "meta/llama-3.1-70b-instruct",
+      "nvidia/nemotron-3-super-120b-a12b",
+      "google/gemma-3n-e2b-it",
+      "google/gemma-3n-e4b-it",
+      "nvidia/llama-3.3-nemotron-super-49b-v1",
+      "sarvamai/sarvam-m",
+      "mistralai/mistral-medium-3.5-128b",
+      "meta/llama-3.3-70b-instruct"
+    ]
+  }
+}

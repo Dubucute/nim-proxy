@@ -1,0 +1,651 @@
+// server.js - OpenAI to NVIDIA NIM API Proxy
+// Translates between VS Code's OpenAI-format requests and NVIDIA NIM format
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const axios = require('axios');
+const shared = require('./shared');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware - increase limit for large chat contexts
+app.use(cors());
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
+
+// NVIDIA NIM API configuration
+const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
+
+// Rotating pool of API keys — if one hits rate limit, next key is used
+// Set NIM_API_KEY in env, optionally add NIM_API_KEY_2, _3, _4, etc.
+// Falls back to hardcoded keys for convenience.
+const NIM_API_KEYS = (() => {
+  const keys = [];
+  // Collect all NIM_API_KEY* env vars
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith('NIM_API_KEY') && value) {
+      keys.push(value);
+    }
+  }
+  // Fallback hardcoded keys if nothing in env
+  if (keys.length === 0) {
+    keys.push(
+      'nvapi-REVOKED-KEY-REMOVED',
+      'nvapi-REVOKED-KEY-REMOVED'
+    );
+  }
+  return keys;
+})();
+let currentKeyIndex = 0;
+
+function getCurrentKey() {
+  return NIM_API_KEYS[currentKeyIndex];
+}
+
+function rotateKey() {
+  currentKeyIndex = (currentKeyIndex + 1) % NIM_API_KEYS.length;
+  console.log(`[PROXY] Rotated to API key #${currentKeyIndex + 1}/${NIM_API_KEYS.length}`);
+}
+
+// Resolve which API key to use for a given request.
+// Priority: 1) req.body.apiKey (if non-empty and not "none"), 2) rotating pool
+function resolveApiKey(req) {
+  if (req && req.body && req.body.apiKey && typeof req.body.apiKey === 'string' && req.body.apiKey.trim() !== '' && req.body.apiKey.toLowerCase() !== 'none') {
+    return req.body.apiKey.trim();
+  }
+  return getCurrentKey();
+}
+
+// Whitelist of params to forward from incoming request to NVIDIA
+const FORWARD_PARAMS = [
+  'model', 'messages', 'max_tokens', 'stream', 'temperature',
+  'tools', 'tool_choice', 'stop', 'top_p', 'frequency_penalty', 'presence_penalty',
+  'seed', 'user', 'logit_bias'
+];
+
+// Endpoints that are proxied directly to NVIDIA (passthrough — no transformation needed)
+// Note: NVIDIA's integrate.api.nvidia.com API doesn't have audio/speech models yet.
+const PASSTHROUGH_ENDPOINTS = [
+  '/v1/embeddings',
+  '/v1/images/generations'
+];
+
+// Build an NVIDIA NIM request body from an incoming OpenAI-format body
+function buildNimRequest(body) {
+  const nimRequest = {};
+  for (const key of FORWARD_PARAMS) {
+    if (body[key] !== undefined && body[key] !== null) {
+      nimRequest[key] = body[key];
+    }
+  }
+  if (!nimRequest.max_tokens) nimRequest.max_tokens = shared.getDefaultMaxTokens(body.model || '');
+  if (!nimRequest.stream) nimRequest.stream = false;
+  return nimRequest;
+}
+
+// Transform NIM response choices to OpenAI-compatible format
+function transformChoices(choices) {
+  return (choices || []).map(choice => {
+    const msg = {
+      role: choice.message?.role || 'assistant',
+      content: choice.message?.content || null
+    };
+    if (choice.message?.tool_calls) {
+      msg.tool_calls = choice.message.tool_calls;
+    }
+    if (choice.message?.reasoning_content) {
+      msg.reasoning_content = choice.message.reasoning_content;
+    }
+    return {
+      index: choice.index,
+      message: msg,
+      finish_reason: choice.finish_reason || 'stop'
+    };
+  });
+}
+
+// Health check endpoint — lists all available endpoints + benchmark summary
+app.get('/health', (req, res) => {
+  const benchData = shared.loadBenchmarkData();
+  const summary = shared.getBenchmarkSummary(benchData);
+  res.json({
+    status: 'ok',
+    service: 'OpenAI to NVIDIA NIM Proxy',
+    endpoints: {
+      chat: '/v1/chat/completions',
+      embeddings: '/v1/embeddings',
+      images: '/v1/images/generations',
+      models: '/v1/models',
+      ranked: '/v1/models/ranked'
+    },
+    benchmarks: summary ? {
+      lastUpdated: summary.lastUpdated,
+      totalTested: summary.totalTested,
+      working: summary.working,
+      failed: summary.failed,
+      topModel: summary.topModel,
+      topScore: summary.topScore,
+      fastestModel: summary.fastestModel,
+      fastestTime: summary.fastestTime
+    } : { status: 'no_benchmark_data' }
+  });
+});
+
+// Cache for model list
+let modelsCache = { data: [], lastFetched: 0 };
+const MODELS_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
+// Fetch all models from NVIDIA NIM API — no filtering, show everything
+async function fetchModelsFromNvidia() {
+  try {
+    const response = await axios.get(`${NIM_API_BASE}/models`, {
+      headers: {
+        'Authorization': `Bearer ${getCurrentKey()}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 10000
+    });
+    // Include ALL models from NVIDIA, annotated with capabilities — no sorting (raw list)
+    modelsCache.data = (response.data.data || [])
+      .map(model => {
+      const modelType = shared.getModelType(model.id);
+      return {
+        id: model.id,
+        object: 'model',
+        created: model.created || Math.floor(Date.now() / 1000),
+        owned_by: model.owned_by || 'nvidia',
+        type: modelType,
+        capabilities: {
+          chat: modelType === 'chat',
+          embedding: modelType === 'embedding',
+          image: modelType === 'image',
+          audio: modelType === 'audio',
+          toolCalling: modelType === 'chat',
+          vision: shared.getVisionCapability(model.id)
+        }
+      };
+    });
+    modelsCache.lastFetched = Date.now();
+    console.log(`[PROXY] Fetched ${modelsCache.data.length} models from NVIDIA`);
+  } catch (error) {
+    console.error('[PROXY] Failed to fetch models from NVIDIA:', error.message);
+  }
+}
+
+// List models endpoint (OpenAI compatible) — dynamically fetched from NVIDIA + benchmark annotations
+app.get('/v1/models', async (req, res) => {
+  // Refresh cache if stale or empty
+  if (modelsCache.data.length === 0 || Date.now() - modelsCache.lastFetched > MODELS_CACHE_TTL) {
+    await fetchModelsFromNvidia();
+  }
+
+  // Load benchmark data for annotations
+  const benchData = shared.loadBenchmarkData();
+  const lookup = benchData.lookup || {};
+
+  // Annotate each model with benchmark data if available
+  let annotatedData = modelsCache.data.map(m => {
+    const bench = lookup[m.id];
+    if (bench) {
+      return {
+        ...m,
+        benchmark: {
+          rank: bench.rank,
+          combinedScore: bench.combinedScore,
+          speed: bench.speed?.responseTimeSec,
+          speedRank: bench.speed?.rank,
+          codingScore: bench.coding?.score,
+          codingPercentage: bench.coding?.percentage,
+          tasksPassed: bench.coding?.tasksPassed
+        }
+      };
+    }
+    return m;
+  });
+
+  // Filter by model type if requested (e.g. ?type=chat, ?type=embedding, ?type=image, ?type=audio)
+  const { type } = req.query;
+  if (type) {
+    const typeLower = type.toLowerCase();
+    annotatedData = annotatedData.filter(m => m.type === typeLower);
+  }
+
+  // If still empty after fetch, return fallback
+  if (annotatedData.length === 0) {
+    const fallback = {
+      id: 'meta/llama-3.1-8b-instruct',
+      object: 'model',
+      created: Math.floor(Date.now() / 1000),
+      owned_by: 'nvidia-nim-proxy',
+      type: 'chat',
+      capabilities: {
+        chat: true,
+        embedding: false,
+        image: false,
+        audio: false,
+        toolCalling: true,
+        vision: false
+      }
+    };
+    return res.json({
+      object: 'list',
+      total: modelsCache.data.length > 0 ? annotatedData.length : 1,
+      data: modelsCache.data.length > 0 ? [] : [fallback]
+    });
+  }
+
+  res.setHeader('Cache-Control', 'public, max-age=900, stale-while-revalidate=3600');
+  res.json({
+    object: 'list',
+    total: annotatedData.length,
+    data: annotatedData
+  });
+});
+
+// Chat completions endpoint (main proxy)
+app.post('/v1/chat/completions', async (req, res) => {
+  try {
+    // Log a summary of what we received
+    const hasTools = !!(req.body.tools && req.body.tools.length > 0);
+    console.log(`[PROXY] → ${req.body.model} | stream: ${req.body.stream} | tokens: ${req.body.max_tokens || 4096} | tools: ${hasTools}`);
+
+    // Build NVIDIA NIM request from incoming OpenAI-format request
+    const nimRequest = buildNimRequest(req.body);
+
+    // All models are tool-capable by default — NVIDIA will return errors if not supported
+
+    // Determine which API key to use (custom key from request body, or rotating pool)
+    const activeKey = resolveApiKey(req);
+
+    // Make request to NVIDIA NIM API — let NVIDIA decide if the model supports chat
+    const response = await axios.post(`${NIM_API_BASE}/chat/completions`, nimRequest, {
+      headers: {
+        'Authorization': `Bearer ${activeKey}`,
+        'Content-Type': 'application/json'
+      },
+      responseType: nimRequest.stream ? 'stream' : 'json',
+      timeout: 120000
+    });
+
+    if (nimRequest.stream) {
+      // Handle streaming response
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+
+      let buffer = '';
+      let doneSent = false;
+
+      response.data.on('data', (chunk) => {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        lines.forEach(line => {
+          if (line.startsWith('data: ')) {
+            if (line.includes('[DONE]')) {
+              if (!doneSent) {
+                res.write(line + '\n');
+                doneSent = true;
+              }
+              return;
+            }
+
+            try {
+              const data = JSON.parse(line.slice(6));
+              // Remove nvext metadata (not OpenAI-compatible)
+              delete data.nvext;
+              res.write(`data: ${JSON.stringify(data)}\n\n`);
+            } catch (e) {
+              res.write(line + '\n');
+            }
+          }
+        });
+      });
+
+      response.data.on('end', () => {
+        if (!doneSent) {
+          res.write('data: [DONE]\n\n');
+        }
+        res.end();
+      });
+
+      response.data.on('error', (err) => {
+        console.error('Stream error:', err);
+        res.end();
+      });
+    } else {
+      // Transform NIM response to clean OpenAI format
+      const openaiResponse = {
+        id: response.data.id || `chatcmpl-${Date.now()}`,
+        object: 'chat.completion',
+        created: response.data.created || Math.floor(Date.now() / 1000),
+        model: nimRequest.model,
+        choices: transformChoices(response.data.choices),
+        usage: response.data.usage || {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0
+        }
+      };
+
+      console.log(`[PROXY] ← ${nimRequest.model} | ${openaiResponse.usage.total_tokens} tokens`);
+      res.json(openaiResponse);
+    }
+
+  } catch (error) {
+    console.error('Proxy error:', error.message);
+
+    // Handle rate limiting — rotate to next key and retry once
+    if (error.response?.status === 503 || error.response?.data?.error?.message?.includes('ResourceExhausted') || error.response?.status === 429) {
+      const oldIndex = currentKeyIndex;
+      rotateKey();
+      // If we've tried all keys, give up
+      if (currentKeyIndex === oldIndex) {
+        return res.status(429).json({
+          error: {
+            message: 'All NVIDIA API keys are rate limited. Please wait and try again.',
+            type: 'rate_limit_error',
+            code: 429
+          }
+        });
+      }
+      // Retry with the next key (or custom key if provided)
+      const retryActiveKey = resolveApiKey(req);
+      console.log(`[PROXY] Retrying with key #${currentKeyIndex + 1}...`);
+      try {
+        const retryNimRequest = buildNimRequest(req.body);
+        const retryResponse = await axios.post(`${NIM_API_BASE}/chat/completions`, retryNimRequest, {
+          headers: {
+            'Authorization': `Bearer ${retryActiveKey}`,
+            'Content-Type': 'application/json'
+          },
+          responseType: req.body.stream ? 'stream' : 'json',
+          timeout: 120000
+        });
+        // Forward the retry response
+        if (req.body.stream) {
+          res.setHeader('Content-Type', 'text/event-stream');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Connection', 'keep-alive');
+          retryResponse.data.pipe(res);
+        } else {
+          const openaiResponse = {
+            id: retryResponse.data.id || `chatcmpl-${Date.now()}`,
+            object: 'chat.completion',
+            created: retryResponse.data.created || Math.floor(Date.now() / 1000),
+            model: retryNimRequest.model,
+            choices: transformChoices(retryResponse.data.choices),
+            usage: retryResponse.data.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+          };
+          console.log(`[PROXY] ← ${retryNimRequest.model} (after rotate) | ${openaiResponse.usage.total_tokens} tokens`);
+          return res.json(openaiResponse);
+        }
+      } catch (retryError) {
+        console.error('Retry also failed:', retryError.message);
+        return res.status(429).json({
+          error: {
+            message: 'All NVIDIA API keys are rate limited. Please wait and try again.',
+            type: 'rate_limit_error',
+            code: 429
+          }
+        });
+      }
+    }
+
+    res.status(error.response?.status || 500).json({
+      error: {
+        message: error.response?.data?.error?.message || error.message || 'Internal server error',
+        type: 'invalid_request_error',
+        code: error.response?.status || 500
+      }
+    });
+  }
+});
+
+
+
+// Ranked models endpoint — benchmark-driven ranking with real data from benchmark_data.json
+app.get('/v1/models/ranked', async (req, res) => {
+  // Fetch models from NVIDIA if cache is empty
+  if (modelsCache.data.length === 0 || Date.now() - modelsCache.lastFetched > MODELS_CACHE_TTL) {
+    await fetchModelsFromNvidia();
+  }
+
+  if (modelsCache.data.length === 0) {
+    return res.status(503).json({
+      error: {
+        message: 'Model data not available.',
+        type: 'server_error',
+        code: 503
+      }
+    });
+  }
+
+  // Load benchmark data
+  const benchData = shared.loadBenchmarkData();
+  const lookup = benchData.lookup || {};
+
+  // Sort by benchmark rank (ranked first, then instruct, then alphabetical)
+  let sorted = [...modelsCache.data];
+  shared.getRankedSort(sorted, lookup);
+
+  // Filter by model type if requested (e.g. ?type=chat, ?type=embedding, ?type=image)
+  const { limit, minScore, category, tag, type } = req.query;
+  if (type) {
+    const typeLower = type.toLowerCase();
+    sorted = sorted.filter(m => m.type === typeLower);
+  }
+
+  // Annotate each model with benchmark data
+  const annotated = sorted.map(m => {
+    const bench = lookup[m.id];
+    if (bench) {
+      return {
+        ...m,
+        benchmark: {
+          rank: bench.rank,
+          combinedScore: bench.combinedScore,
+          speed: bench.speed?.responseTimeSec,
+          speedRank: bench.speed?.rank,
+          codingScore: bench.coding?.score,
+          codingPercentage: bench.coding?.percentage,
+          tasksPassed: bench.coding?.tasksPassed
+        }
+      };
+    }
+    return m;
+  });
+
+  let results = annotated;
+
+  // Filter by tag (e.g. ?tag=fast, ?tag=vision, ?tag=slow, ?tag=smart)
+  // Checks both model tags AND speed rank tags from benchmark data
+  if (tag) {
+    const tagLower = tag.toLowerCase();
+    // First check if it's a capability filter (vision, toolcalling)
+    if (tagLower === 'vision') {
+      results = results.filter(m => m.capabilities.vision);
+    } else if (tagLower === 'toolcalling' || tagLower === 'tools') {
+      results = results.filter(m => m.capabilities.toolCalling);
+    } else if (tagLower === 'chat' || tagLower === 'embedding' || tagLower === 'image' || tagLower === 'audio') {
+      results = results.filter(m => m.type === tagLower);
+    } else {
+      // Benchmark tag filter — checks speed rank and computed tags from available data
+      results = results.filter(m => {
+        const bench = m.benchmark;
+        if (!bench) return false;
+        // Check speed rank
+        if ((bench.speedRank || '').toLowerCase().includes(tagLower)) return true;
+        // Check combinedScore level for generic tag matching
+        if (tagLower === 'coding_expert' && (bench.codingPercentage || 0) >= 80) return true;
+        if (tagLower === 'smart' && (bench.codingPercentage || 0) >= 80) return true;
+        if (tagLower === 'top_tier' && (bench.combinedScore || 0) > 0) return true;
+        if (tagLower === 'best_overall' && (bench.combinedScore || 0) >= 8000) return true;
+        return false;
+      });
+    }
+  }
+
+  // Filter by minimum combined score (e.g. ?minScore=8000)
+  if (minScore !== undefined && minScore !== null) {
+    const min = parseInt(minScore);
+    if (!isNaN(min)) {
+      results = results.filter(m => (m.benchmark?.combinedScore || 0) >= min);
+    }
+  }
+
+  // Filter by category from benchmark data (e.g. ?category=fastest, ?category=smartest, ?category=codingExperts)
+  if (category) {
+    const categories = benchData.raw?.categories || {};
+    const allowed = categories[category];
+    if (allowed && allowed.length > 0) {
+      const allowedSet = new Set(allowed);
+      results = results.filter(m => allowedSet.has(m.id));
+    }
+  }
+
+  // Apply limit
+  if (limit !== undefined && limit !== null) {
+    const lim = parseInt(limit);
+    if (!isNaN(lim) && lim > 0) results = results.slice(0, lim);
+  }
+
+  // Count benchmarked vs unranked
+  const rankedCount = results.filter(m => m.benchmark).length;
+
+  res.setHeader('Cache-Control', 'public, max-age=900, stale-while-revalidate=3600');
+  res.json({
+    object: 'list',
+    total: sorted.length,
+    benchmarkedCount: rankedCount,
+    query: { limit, minScore, category, tag, type },
+    data: results
+  });
+});
+
+// Generic passthrough proxy for non-chat endpoints (embeddings, images, audio, etc.)
+// These endpoints are forwarded directly to NVIDIA with minimal transformation.
+for (const endpoint of PASSTHROUGH_ENDPOINTS) {
+  app.post(endpoint, async (req, res) => {
+    const startTime = Date.now();
+    try {
+      console.log(`[PROXY] → ${endpoint} | model: ${req.body.model || 'N/A'}`);
+
+      const passthroughKey = resolveApiKey(req);
+
+      const response = await axios.post(`${NIM_API_BASE}${endpoint}`, req.body, {
+        headers: {
+          'Authorization': `Bearer ${passthroughKey}`,
+          'Content-Type': req.body.file ? 'multipart/form-data' : 'application/json'
+        },
+        timeout: 120000,
+        responseType: endpoint === '/v1/audio/speech' ? 'stream' : 'json'
+      });
+
+      if (endpoint === '/v1/audio/speech') {
+        // Audio speech returns raw audio stream
+        res.setHeader('Content-Type', response.headers['content-type'] || 'audio/mpeg');
+        response.data.pipe(res);
+      } else {
+        console.log(`[PROXY] ← ${endpoint} | ${(Date.now() - startTime) / 1000}s`);
+        res.json(response.data);
+      }
+    } catch (error) {
+      console.error(`[PROXY] ${endpoint} error:`, error.message);
+      res.status(error.response?.status || 500).json({
+        error: {
+          message: error.response?.data?.error?.message || error.message || 'Internal server error',
+          type: 'invalid_request_error',
+          code: error.response?.status || 500
+        }
+      });
+    }
+  });
+}
+
+// Legacy completions endpoint (used by autocomplete/FIM models like StarCoder2)
+// Converts legacy format to chat completions format for NVIDIA NIM
+app.post('/v1/completions', async (req, res) => {
+  try {
+    console.log(`[PROXY] → ${req.body.model} | legacy completions | tokens: ${req.body.max_tokens || 256}`);
+
+    // Convert legacy format to chat format
+    const prompt = req.body.prompt || '';
+    const chatBody = {
+      model: req.body.model,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: req.body.max_tokens || 256,
+      temperature: req.body.temperature ?? 0.2,
+      stop: req.body.stop,
+      stream: req.body.stream || false
+    };
+
+    const activeKey = resolveApiKey(req);
+    const response = await axios.post(`${NIM_API_BASE}/chat/completions`, chatBody, {
+      headers: {
+        'Authorization': `Bearer ${activeKey}`,
+        'Content-Type': 'application/json'
+      },
+      responseType: chatBody.stream ? 'stream' : 'json',
+      timeout: 120000
+    });
+
+    if (chatBody.stream) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      response.data.pipe(res);
+    } else {
+      // Transform chat completion response to legacy completion format
+      const choice = response.data.choices?.[0];
+      const legacyResponse = {
+        id: response.data.id || `cmpl-${Date.now()}`,
+        object: 'text_completion',
+        created: response.data.created || Math.floor(Date.now() / 1000),
+        model: req.body.model,
+        choices: [{
+          text: choice?.message?.content || '',
+          index: 0,
+          finish_reason: choice?.finish_reason || 'stop'
+        }],
+        usage: response.data.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+      };
+      console.log(`[PROXY] ← ${req.body.model} | ${legacyResponse.usage.total_tokens} tokens`);
+      res.json(legacyResponse);
+    }
+  } catch (error) {
+    console.error('[PROXY] Legacy completions error:', error.message);
+    res.status(error.response?.status || 500).json({
+      error: {
+        message: error.response?.data?.error?.message || error.message || 'Internal server error',
+        type: 'invalid_request_error',
+        code: error.response?.status || 500
+      }
+    });
+  }
+});
+
+// Catch-all for unsupported endpoints
+app.use((req, res) => {
+  res.status(404).json({
+    error: {
+      message: `Endpoint ${req.path} not found`,
+      type: 'invalid_request_error',
+      code: 404
+    }
+  });
+});
+
+app.listen(PORT, () => {
+  // Preload benchmark data on startup
+  shared.loadBenchmarkData();
+  console.log('OpenAI to NVIDIA NIM Proxy running on port ' + PORT);
+  console.log(`Health check: http://localhost:${PORT}/health`);
+  console.log(`Chat: http://localhost:${PORT}/v1/chat/completions`);
+  console.log(`Embeddings: http://localhost:${PORT}/v1/embeddings`);
+  console.log(`Images: http://localhost:${PORT}/v1/images/generations`);
+  console.log(`Models: http://localhost:${PORT}/v1/models`);
+  console.log(`Ranked: http://localhost:${PORT}/v1/models/ranked`);
+});
