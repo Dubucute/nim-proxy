@@ -31,17 +31,17 @@ const NIM_API_KEYS = (() => {
   if (keys.length === 0) {
     console.error('[FATAL] No NIM_API_KEY environment variable set!');
     console.error('Set NIM_API_KEY in your .env file or environment.');
-    process.exit(1);
   }
   return keys;
 })();
 let currentKeyIndex = 0;
 
 function getCurrentKey() {
-  return NIM_API_KEYS[currentKeyIndex];
+  return NIM_API_KEYS.length > 0 ? NIM_API_KEYS[currentKeyIndex] : null;
 }
 
 function rotateKey() {
+  if (NIM_API_KEYS.length === 0) return;
   currentKeyIndex = (currentKeyIndex + 1) % NIM_API_KEYS.length;
   console.log(`[PROXY] Rotated to API key #${currentKeyIndex + 1}/${NIM_API_KEYS.length}`);
 }
@@ -54,11 +54,17 @@ function nextRequestId() {
 
 // Resolve which API key to use for a given request.
 // Priority: 1) req.body.apiKey (if non-empty and not "none"), 2) rotating pool
+// Returns null if no keys configured at all (handled downstream with a clear error)
 function resolveApiKey(req) {
   if (req && req.body && req.body.apiKey && typeof req.body.apiKey === 'string' && req.body.apiKey.trim() !== '' && req.body.apiKey.toLowerCase() !== 'none') {
     return req.body.apiKey.trim();
   }
   return getCurrentKey();
+}
+
+// Check if any API keys are configured — used for fast-fail validation
+function hasApiKeysConfigured() {
+  return NIM_API_KEYS.length > 0;
 }
 
 // Whitelist of params to forward from incoming request to NVIDIA
@@ -324,6 +330,13 @@ app.post('/v1/chat/completions', async (req, res) => {
     if (!req.body.messages || !Array.isArray(req.body.messages) || req.body.messages.length === 0) {
       return res.status(400).json({
         error: { message: 'messages is required and must be a non-empty array', type: 'invalid_request_error', code: 400 }
+      });
+    }
+
+    // Check if API keys are configured (skip check if user provides their own key)
+    if (!hasApiKeysConfigured() && !(req.body.apiKey && typeof req.body.apiKey === 'string' && req.body.apiKey.trim() !== '' && req.body.apiKey.toLowerCase() !== 'none')) {
+      return res.status(500).json({
+        error: { message: 'NVIDIA API key not configured. Set NIM_API_KEY environment variable or pass an apiKey in the request body.', type: 'server_error', code: 500 }
       });
     }
 
