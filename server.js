@@ -668,26 +668,32 @@ app.use((req, res) => {
   });
 });
 
-const server = app.listen(PORT, () => {
-  // Preload benchmark data on startup
-  shared.loadBenchmarkData();
-  console.log('OpenAI to NVIDIA NIM Proxy running on port ' + PORT);
-  console.log(`Health check: http://localhost:${PORT}/health`);
-  console.log(`Chat: http://localhost:${PORT}/v1/chat/completions`);
-  console.log(`Embeddings: http://localhost:${PORT}/v1/embeddings`);
-  console.log(`Images: http://localhost:${PORT}/v1/images/generations`);
-  console.log(`Audio: http://localhost:${PORT}/v1/audio/transcriptions`);
-  console.log(`Models: http://localhost:${PORT}/v1/models`);
-  console.log(`Ranked: http://localhost:${PORT}/v1/models/ranked`);
-});
+// Export app for Vercel serverless (or other serverless platforms)
+module.exports = app;
 
-// Graceful shutdown — close all connections on SIGTERM/SIGINT
-process.on('SIGTERM', () => {
-  console.log('[PROXY] SIGTERM received — shutting down gracefully...');
-  server.close(() => process.exit(0));
-});
+// Only listen when run directly (not when imported as a serverless function)
+if (require.main === module) {
+  const server = app.listen(PORT, () => {
+    // Preload benchmark data on startup
+    shared.loadBenchmarkData();
+    console.log('OpenAI to NVIDIA NIM Proxy running on port ' + PORT);
+    console.log(`Health check: http://localhost:${PORT}/health`);
+    console.log(`Chat: http://localhost:${PORT}/v1/chat/completions`);
+    console.log(`Embeddings: http://localhost:${PORT}/v1/embeddings`);
+    console.log(`Images: http://localhost:${PORT}/v1/images/generations`);
+    console.log(`Audio: http://localhost:${PORT}/v1/audio/transcriptions`);
+    console.log(`Models: http://localhost:${PORT}/v1/models`);
+    console.log(`Ranked: http://localhost:${PORT}/v1/models/ranked`);
+  });
 
-process.on('SIGINT', () => {
-  console.log('[PROXY] SIGINT received — shutting down gracefully...');
-  server.close(() => process.exit(0));
-});
+  // Graceful shutdown — close all connections on SIGTERM/SIGINT
+  process.on('SIGTERM', () => {
+    console.log('[PROXY] SIGTERM received — shutting down gracefully...');
+    server.close(() => process.exit(0));
+  });
+
+  process.on('SIGINT', () => {
+    console.log('[PROXY] SIGINT received — shutting down gracefully...');
+    server.close(() => process.exit(0));
+  });
+}
