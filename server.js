@@ -1,10 +1,15 @@
 // server.js - OpenAI to NVIDIA NIM API Proxy
 // Translates between VS Code's OpenAI-format requests and NVIDIA NIM format
 require('dotenv').config();
+const https = require('https');
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const shared = require('./shared');
+
+// KeepAlive agent — reuses TCP/TLS connections to NVIDIA instead of handshaking per request
+const keepAliveAgent = new https.Agent({ keepAlive: true, maxSockets: 10 });
+axios.defaults.httpsAgent = keepAliveAgent;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
