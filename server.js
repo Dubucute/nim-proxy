@@ -4,6 +4,7 @@ require('dotenv').config();
 const https = require('https');
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
 const axios = require('axios');
 const shared = require('./shared');
 
@@ -14,7 +15,8 @@ axios.defaults.httpsAgent = keepAliveAgent;
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware - increase limit for large chat contexts
+// Middleware
+app.use(compression({ threshold: 512 })); // compress responses > 512 bytes
 app.use(cors());
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
@@ -39,16 +41,60 @@ const NIM_API_KEYS = (() => {
   }
   return keys;
 })();
-let currentKeyIndex = 0;
+// Advanced key manager — tracks rate limit cooldowns per key, auto-skips throttled keys
+const keyManager = {
+  keys: NIM_API_KEYS,
+  index: 0,
+  cooldowns: {},        // { index: timestamp_ms } when cooldown expires
+  COOLDOWN_MS: 30000,   // 30 seconds cooldown after rate limit
 
+  // Get the best available key (skips keys in cooldown)
+  get() {
+    const now = Date.now();
+    for (let i = 0; i < this.keys.length; i++) {
+      const idx = (this.index + i) % this.keys.length;
+      if (!this.cooldowns[idx] || now >= this.cooldowns[idx]) {
+        this.index = idx;
+        return this.keys[idx];
+      }
+    }
+    // All keys cooling down — use current anyway (better than nothing)
+    return this.keys[this.index];
+  },
+
+  // Mark a key as rate limited and move to next healthy key
+  markRateLimited(keyIdx) {
+    const idx = keyIdx !== undefined ? keyIdx : this.index;
+    this.cooldowns[idx] = Date.now() + this.COOLDOWN_MS;
+    console.log(`[PROXY] Key #${idx + 1} rate limited — cooldown ${this.COOLDOWN_MS / 1000}s`);
+    // Move to next key that isn't cooling down
+    const now = Date.now();
+    for (let i = 1; i <= this.keys.length; i++) {
+      const nextIdx = (idx + i) % this.keys.length;
+      if (!this.cooldowns[nextIdx] || now >= this.cooldowns[nextIdx]) {
+        this.index = nextIdx;
+        return;
+      }
+    }
+    // All cooling down — just move to next sequentially
+    this.index = (idx + 1) % this.keys.length;
+  },
+
+  // Check if all keys are currently in cooldown
+  allCoolingDown() {
+    const now = Date.now();
+    return this.keys.length > 0 && this.keys.every((_, i) => this.cooldowns[i] && now < this.cooldowns[i]);
+  }
+};
+
+// Convenience wrapper — matches old getCurrentKey() signature
 function getCurrentKey() {
-  return NIM_API_KEYS.length > 0 ? NIM_API_KEYS[currentKeyIndex] : null;
+  return keyManager.get();
 }
 
 function rotateKey() {
   if (NIM_API_KEYS.length === 0) return;
-  currentKeyIndex = (currentKeyIndex + 1) % NIM_API_KEYS.length;
-  console.log(`[PROXY] Rotated to API key #${currentKeyIndex + 1}/${NIM_API_KEYS.length}`);
+  keyManager.markRateLimited(keyManager.index);
 }
 
 // Request ID generator for log tracing
@@ -412,12 +458,12 @@ app.post('/v1/chat/completions', async (req, res) => {
   } catch (error) {
     console.error(`[${reqId}] Proxy error:`, error.message);
 
-    // Handle rate limiting — rotate to next key and retry once
+    // Handle rate limiting — mark current key as cooling down, retry with next
     if (error.response?.status === 503 || error.response?.data?.error?.message?.includes('ResourceExhausted') || error.response?.status === 429) {
-      const oldIndex = currentKeyIndex;
-      rotateKey();
-      // If we've tried all keys, give up
-      if (currentKeyIndex === oldIndex) {
+      const usedKeyIndex = keyManager.index;
+      keyManager.markRateLimited(usedKeyIndex);
+      // If all keys are now cooling down, give up immediately
+      if (keyManager.allCoolingDown()) {
         return res.status(429).json({
           error: {
             message: 'All NVIDIA API keys are rate limited. Please wait and try again.',
@@ -426,9 +472,9 @@ app.post('/v1/chat/completions', async (req, res) => {
           }
         });
       }
-      // Retry with the next key (or custom key if provided)
+      // Retry with the next available key
       const retryActiveKey = resolveApiKey(req);
-      console.log(`[PROXY] Retrying with key #${currentKeyIndex + 1}...`);
+      console.log(`[PROXY] Retrying with key #${keyManager.index + 1}...`);
       try {
         const retryNimRequest = buildNimRequest(req.body);
         const retryResponse = await axios.post(`${NIM_API_BASE}/chat/completions`, retryNimRequest, {

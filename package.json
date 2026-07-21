@@ -10,12 +10,19 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "keywords": ["nvidia", "nim", "proxy", "openai", "alwaysdata"],
+  "keywords": [
+    "nvidia",
+    "nim",
+    "proxy",
+    "openai",
+    "alwaysdata"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
     "axios": "^1.18.1",
+    "compression": "^1.8.1",
     "cors": "^2.8.6",
     "dotenv": "^16.4.7",
     "express": "^5.2.1"
