@@ -518,8 +518,15 @@ app.post('/v1/chat/completions', async (req, res) => {
   } catch (error) {
     console.error(`[${reqId}] Proxy error:`, error.message);
 
-    // Handle rate limiting — mark current key as cooling down, retry with next
-    if (error.response?.status === 503 || error.response?.data?.error?.message?.includes('ResourceExhausted') || error.response?.status === 429) {
+    // Detect rate limiting — handles both standard axios errors and stream response edge cases
+    const isRateLimit = error.response?.status === 429
+      || error.response?.status === 503
+      || error.response?.data?.error?.message?.includes('ResourceExhausted')
+      || error.message?.includes('429')
+      || error.message?.includes('rate limit')
+      || error.message?.includes('status code 429');
+
+    if (isRateLimit) {
       const usedKeyIndex = keyManager.index;
       keyManager.markRateLimited(usedKeyIndex);
       // If all keys are now cooling down, give up immediately
