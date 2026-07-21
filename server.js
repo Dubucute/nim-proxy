@@ -461,6 +461,23 @@ app.post('/v1/chat/completions', async (req, res) => {
       });
     } else {
       // Transform NIM response to clean OpenAI format
+      const choices = transformChoices(response.data.choices);
+
+      // Validate that NVIDIA actually returned choices
+      if (!choices || choices.length === 0) {
+        const errMsg = response.data?.error?.message || 'NVIDIA returned an empty response — model may be temporarily unavailable or does not support the requested parameters.';
+        console.error(`[${reqId}] Empty choices from NVIDIA for ${nimRequest.model}`);
+        addLogEntry({
+          reqId, model: nimRequest.model, status: 502,
+          duration: Date.now() - startTime, durationFmt: fmtDuration(Date.now() - startTime),
+          promptTokens: 0, completionTokens: 0, totalTokens: 0,
+          stream: false, endpoint: 'chat', error: `empty_choices: ${errMsg}`
+        });
+        return res.status(502).json({
+          error: { message: errMsg, type: 'upstream_error', code: 502 }
+        });
+      }
+
       const openaiResponse = {
         id: response.data.id || `chatcmpl-${Date.now()}`,
         object: 'chat.completion',
