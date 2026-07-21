@@ -28,12 +28,10 @@ const NIM_API_KEYS = (() => {
       keys.push(value);
     }
   }
-  // Fallback hardcoded keys if nothing in env
   if (keys.length === 0) {
-    keys.push(
-      'nvapi-REVOKED-KEY-REMOVED',
-      'nvapi-REVOKED-KEY-REMOVED'
-    );
+    console.error('[FATAL] No NIM_API_KEY environment variable set!');
+    console.error('Set NIM_API_KEY in your .env file or environment.');
+    process.exit(1);
   }
   return keys;
 })();
@@ -46,6 +44,12 @@ function getCurrentKey() {
 function rotateKey() {
   currentKeyIndex = (currentKeyIndex + 1) % NIM_API_KEYS.length;
   console.log(`[PROXY] Rotated to API key #${currentKeyIndex + 1}/${NIM_API_KEYS.length}`);
+}
+
+// Request ID generator for log tracing
+let requestCounter = 0;
+function nextRequestId() {
+  return `req-${Date.now()}-${++requestCounter}`;
 }
 
 // Resolve which API key to use for a given request.
@@ -68,7 +72,11 @@ const FORWARD_PARAMS = [
 // Note: NVIDIA's integrate.api.nvidia.com API doesn't have audio/speech models yet.
 const PASSTHROUGH_ENDPOINTS = [
   '/v1/embeddings',
-  '/v1/images/generations'
+  '/v1/images/generations',
+  '/v1/images/edits',
+  '/v1/audio/transcriptions',
+  '/v1/audio/translations',
+  '/v1/audio/speech'
 ];
 
 // Build an NVIDIA NIM request body from an incoming OpenAI-format body
@@ -105,6 +113,57 @@ function transformChoices(choices) {
   });
 }
 
+// Pipe an NVIDIA NIM streaming response to the client with proper SSE formatting
+// Strips nvext metadata, ensures exactly one [DONE] sent, handles buffer accumulation
+function pipeNimStream(nimStream, res) {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  let buffer = '';
+  let doneSent = false;
+
+  nimStream.on('data', (chunk) => {
+    buffer += chunk.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    lines.forEach(line => {
+      if (line.startsWith('data: ')) {
+        if (line.includes('[DONE]')) {
+          if (!doneSent) {
+            res.write(line + '\n');
+            doneSent = true;
+          }
+          return;
+        }
+        try {
+          const data = JSON.parse(line.slice(6));
+          delete data.nvext;
+          res.write(`data: ${JSON.stringify(data)}\n\n`);
+        } catch (e) {
+          res.write(line + '\n');
+        }
+      }
+    });
+  });
+
+  nimStream.on('end', () => {
+    if (!doneSent) {
+      res.write('data: [DONE]\n\n');
+    }
+    res.end();
+  });
+
+  nimStream.on('error', (err) => {
+    console.error('Stream error:', err);
+    if (!doneSent) {
+      res.write('data: [DONE]\n\n');
+    }
+    res.end();
+  });
+}
+
 // Health check endpoint — lists all available endpoints + benchmark summary
 app.get('/health', (req, res) => {
   const benchData = shared.loadBenchmarkData();
@@ -137,39 +196,48 @@ let modelsCache = { data: [], lastFetched: 0 };
 const MODELS_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
 
 // Fetch all models from NVIDIA NIM API — no filtering, show everything
-async function fetchModelsFromNvidia() {
-  try {
-    const response = await axios.get(`${NIM_API_BASE}/models`, {
-      headers: {
-        'Authorization': `Bearer ${getCurrentKey()}`,
-        'Content-Type': 'application/json'
-      },
-      timeout: 10000
-    });
-    // Include ALL models from NVIDIA, annotated with capabilities — no sorting (raw list)
-    modelsCache.data = (response.data.data || [])
-      .map(model => {
-      const modelType = shared.getModelType(model.id);
-      return {
-        id: model.id,
-        object: 'model',
-        created: model.created || Math.floor(Date.now() / 1000),
-        owned_by: model.owned_by || 'nvidia',
-        type: modelType,
-        capabilities: {
-          chat: modelType === 'chat',
-          embedding: modelType === 'embedding',
-          image: modelType === 'image',
-          audio: modelType === 'audio',
-          toolCalling: modelType === 'chat',
-          vision: shared.getVisionCapability(model.id)
-        }
-      };
-    });
-    modelsCache.lastFetched = Date.now();
-    console.log(`[PROXY] Fetched ${modelsCache.data.length} models from NVIDIA`);
-  } catch (error) {
-    console.error('[PROXY] Failed to fetch models from NVIDIA:', error.message);
+async function fetchModelsFromNvidia(retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const response = await axios.get(`${NIM_API_BASE}/models`, {
+        headers: {
+          'Authorization': `Bearer ${getCurrentKey()}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      });
+      // Include ALL models from NVIDIA, annotated with capabilities — no sorting (raw list)
+      modelsCache.data = (response.data.data || [])
+        .map(model => {
+        const modelType = shared.getModelType(model.id);
+        return {
+          id: model.id,
+          object: 'model',
+          created: model.created || Math.floor(Date.now() / 1000),
+          owned_by: model.owned_by || 'nvidia',
+          type: modelType,
+          capabilities: {
+            chat: modelType === 'chat',
+            embedding: modelType === 'embedding',
+            image: modelType === 'image',
+            audio: modelType === 'audio',
+            toolCalling: modelType === 'chat',
+            vision: shared.getVisionCapability(model.id)
+          }
+        };
+      });
+      modelsCache.lastFetched = Date.now();
+      console.log(`[PROXY] Fetched ${modelsCache.data.length} models from NVIDIA`);
+      return; // success
+    } catch (error) {
+      if (attempt < retries) {
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+        console.log(`[PROXY] Failed to fetch models (attempt ${attempt}/${retries}), retrying in ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        console.error('[PROXY] Failed to fetch models from NVIDIA:', error.message);
+      }
+    }
   }
 }
 
@@ -245,10 +313,23 @@ app.get('/v1/models', async (req, res) => {
 
 // Chat completions endpoint (main proxy)
 app.post('/v1/chat/completions', async (req, res) => {
+  const reqId = nextRequestId();
   try {
+    // Validate required fields
+    if (!req.body.model) {
+      return res.status(400).json({
+        error: { message: 'model is required', type: 'invalid_request_error', code: 400 }
+      });
+    }
+    if (!req.body.messages || !Array.isArray(req.body.messages) || req.body.messages.length === 0) {
+      return res.status(400).json({
+        error: { message: 'messages is required and must be a non-empty array', type: 'invalid_request_error', code: 400 }
+      });
+    }
+
     // Log a summary of what we received
     const hasTools = !!(req.body.tools && req.body.tools.length > 0);
-    console.log(`[PROXY] → ${req.body.model} | stream: ${req.body.stream} | tokens: ${req.body.max_tokens || 4096} | tools: ${hasTools}`);
+    console.log(`[${reqId}] → ${req.body.model} | stream: ${req.body.stream} | tokens: ${req.body.max_tokens || 4096} | tools: ${hasTools}`);
 
     // Build NVIDIA NIM request from incoming OpenAI-format request
     const nimRequest = buildNimRequest(req.body);
@@ -269,52 +350,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     });
 
     if (nimRequest.stream) {
-      // Handle streaming response
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-
-      let buffer = '';
-      let doneSent = false;
-
-      response.data.on('data', (chunk) => {
-        buffer += chunk.toString();
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        lines.forEach(line => {
-          if (line.startsWith('data: ')) {
-            if (line.includes('[DONE]')) {
-              if (!doneSent) {
-                res.write(line + '\n');
-                doneSent = true;
-              }
-              return;
-            }
-
-            try {
-              const data = JSON.parse(line.slice(6));
-              // Remove nvext metadata (not OpenAI-compatible)
-              delete data.nvext;
-              res.write(`data: ${JSON.stringify(data)}\n\n`);
-            } catch (e) {
-              res.write(line + '\n');
-            }
-          }
-        });
-      });
-
-      response.data.on('end', () => {
-        if (!doneSent) {
-          res.write('data: [DONE]\n\n');
-        }
-        res.end();
-      });
-
-      response.data.on('error', (err) => {
-        console.error('Stream error:', err);
-        res.end();
-      });
+      pipeNimStream(response.data, res);
     } else {
       // Transform NIM response to clean OpenAI format
       const openaiResponse = {
@@ -330,12 +366,12 @@ app.post('/v1/chat/completions', async (req, res) => {
         }
       };
 
-      console.log(`[PROXY] ← ${nimRequest.model} | ${openaiResponse.usage.total_tokens} tokens`);
+      console.log(`[${reqId}] ← ${nimRequest.model} | ${openaiResponse.usage.total_tokens} tokens`);
       res.json(openaiResponse);
     }
 
   } catch (error) {
-    console.error('Proxy error:', error.message);
+    console.error(`[${reqId}] Proxy error:`, error.message);
 
     // Handle rate limiting — rotate to next key and retry once
     if (error.response?.status === 503 || error.response?.data?.error?.message?.includes('ResourceExhausted') || error.response?.status === 429) {
@@ -366,10 +402,7 @@ app.post('/v1/chat/completions', async (req, res) => {
         });
         // Forward the retry response
         if (req.body.stream) {
-          res.setHeader('Content-Type', 'text/event-stream');
-          res.setHeader('Cache-Control', 'no-cache');
-          res.setHeader('Connection', 'keep-alive');
-          retryResponse.data.pipe(res);
+          pipeNimStream(retryResponse.data, res);
         } else {
           const openaiResponse = {
             id: retryResponse.data.id || `chatcmpl-${Date.now()}`,
@@ -379,11 +412,11 @@ app.post('/v1/chat/completions', async (req, res) => {
             choices: transformChoices(retryResponse.data.choices),
             usage: retryResponse.data.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
           };
-          console.log(`[PROXY] ← ${retryNimRequest.model} (after rotate) | ${openaiResponse.usage.total_tokens} tokens`);
+          console.log(`[${reqId}] ← ${retryNimRequest.model} (after rotate) | ${openaiResponse.usage.total_tokens} tokens`);
           return res.json(openaiResponse);
         }
       } catch (retryError) {
-        console.error('Retry also failed:', retryError.message);
+        console.error(`[${reqId}] Retry also failed:`, retryError.message);
         return res.status(429).json({
           error: {
             message: 'All NVIDIA API keys are rate limited. Please wait and try again.',
@@ -593,10 +626,7 @@ app.post('/v1/completions', async (req, res) => {
     });
 
     if (chatBody.stream) {
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      response.data.pipe(res);
+      pipeNimStream(response.data, res);
     } else {
       // Transform chat completion response to legacy completion format
       const choice = response.data.choices?.[0];
@@ -638,7 +668,7 @@ app.use((req, res) => {
   });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   // Preload benchmark data on startup
   shared.loadBenchmarkData();
   console.log('OpenAI to NVIDIA NIM Proxy running on port ' + PORT);
@@ -646,6 +676,18 @@ app.listen(PORT, () => {
   console.log(`Chat: http://localhost:${PORT}/v1/chat/completions`);
   console.log(`Embeddings: http://localhost:${PORT}/v1/embeddings`);
   console.log(`Images: http://localhost:${PORT}/v1/images/generations`);
+  console.log(`Audio: http://localhost:${PORT}/v1/audio/transcriptions`);
   console.log(`Models: http://localhost:${PORT}/v1/models`);
   console.log(`Ranked: http://localhost:${PORT}/v1/models/ranked`);
+});
+
+// Graceful shutdown — close all connections on SIGTERM/SIGINT
+process.on('SIGTERM', () => {
+  console.log('[PROXY] SIGTERM received — shutting down gracefully...');
+  server.close(() => process.exit(0));
+});
+
+process.on('SIGINT', () => {
+  console.log('[PROXY] SIGINT received — shutting down gracefully...');
+  server.close(() => process.exit(0));
 });
