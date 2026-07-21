@@ -69,13 +69,15 @@ function hasApiKeysConfigured() {
 
 // Whitelist of params to forward from incoming request to NVIDIA
 const FORWARD_PARAMS = [
-  'model', 'messages', 'max_tokens', 'stream', 'temperature',
-  'tools', 'tool_choice', 'stop', 'top_p', 'frequency_penalty', 'presence_penalty',
+  'model', 'messages', 'max_tokens', 'max_completion_tokens', 'stream',
+  'temperature', 'top_p', 'stop', 'presence_penalty', 'frequency_penalty',
+  'tools', 'tool_choice', 'parallel_tool_calls',
+  'response_format', 'stream_options',
   'seed', 'user', 'logit_bias'
 ];
 
 // Endpoints that are proxied directly to NVIDIA (passthrough — no transformation needed)
-// Note: NVIDIA's integrate.api.nvidia.com API doesn't have audio/speech models yet.
+// Note: NVIDIA's integrate.api.nvidia.com API may not have all audio models available.
 const PASSTHROUGH_ENDPOINTS = [
   '/v1/embeddings',
   '/v1/images/generations',
@@ -92,6 +94,11 @@ function buildNimRequest(body) {
     if (body[key] !== undefined && body[key] !== null) {
       nimRequest[key] = body[key];
     }
+  }
+  // Map OpenAI's max_completion_tokens to NVIDIA's max_tokens
+  // max_completion_tokens takes precedence (newer SDKs use it exclusively)
+  if (body.max_completion_tokens !== undefined && body.max_completion_tokens !== null) {
+    nimRequest.max_tokens = body.max_completion_tokens;
   }
   if (!nimRequest.max_tokens) nimRequest.max_tokens = shared.getDefaultMaxTokens(body.model || '');
   if (!nimRequest.stream) nimRequest.stream = false;
@@ -363,6 +370,11 @@ app.post('/v1/chat/completions', async (req, res) => {
     });
 
     if (nimRequest.stream) {
+      // Set debug headers before SSE stream starts
+      if (req.query.debug === 'true') {
+        res.setHeader('X-Proxy-Request-Id', reqId);
+        res.setHeader('X-NIM-Model', nimRequest.model);
+      }
       pipeNimStream(response.data, res);
     } else {
       // Transform NIM response to clean OpenAI format
@@ -371,6 +383,7 @@ app.post('/v1/chat/completions', async (req, res) => {
         object: 'chat.completion',
         created: response.data.created || Math.floor(Date.now() / 1000),
         model: nimRequest.model,
+        system_fingerprint: response.data.system_fingerprint || null,
         choices: transformChoices(response.data.choices),
         usage: response.data.usage || {
           prompt_tokens: 0,
@@ -380,6 +393,14 @@ app.post('/v1/chat/completions', async (req, res) => {
       };
 
       console.log(`[${reqId}] ← ${nimRequest.model} | ${openaiResponse.usage.total_tokens} tokens`);
+
+      // Debug timing headers — enabled with ?debug=true query param
+      if (req.query.debug === 'true') {
+        res.setHeader('X-Proxy-Request-Id', reqId);
+        res.setHeader('X-NIM-Model', nimRequest.model);
+        res.setHeader('X-NIM-Tokens', openaiResponse.usage.total_tokens);
+      }
+
       res.json(openaiResponse);
     }
 
@@ -415,6 +436,11 @@ app.post('/v1/chat/completions', async (req, res) => {
         });
         // Forward the retry response
         if (req.body.stream) {
+          if (req.query.debug === 'true') {
+            res.setHeader('X-Proxy-Request-Id', reqId);
+            res.setHeader('X-NIM-Model', retryNimRequest.model);
+            res.setHeader('X-Key-Rotated', 'true');
+          }
           pipeNimStream(retryResponse.data, res);
         } else {
           const openaiResponse = {
@@ -422,10 +448,16 @@ app.post('/v1/chat/completions', async (req, res) => {
             object: 'chat.completion',
             created: retryResponse.data.created || Math.floor(Date.now() / 1000),
             model: retryNimRequest.model,
+            system_fingerprint: retryResponse.data.system_fingerprint || null,
             choices: transformChoices(retryResponse.data.choices),
             usage: retryResponse.data.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
           };
           console.log(`[${reqId}] ← ${retryNimRequest.model} (after rotate) | ${openaiResponse.usage.total_tokens} tokens`);
+          if (req.query.debug === 'true') {
+            res.setHeader('X-Proxy-Request-Id', reqId);
+            res.setHeader('X-NIM-Model', retryNimRequest.model);
+            res.setHeader('X-Key-Rotated', 'true');
+          }
           return res.json(openaiResponse);
         }
       } catch (retryError) {
