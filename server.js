@@ -18,6 +18,27 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(compression({ threshold: 512 })); // compress responses > 512 bytes
 app.use(cors());
+
+// ── Request Log ──────────────────────────────────────────────────────────────
+// Circular buffer — stores last 500 proxy requests with timing, status, tokens
+const requestLog = [];
+const MAX_LOG_ENTRIES = 500;
+
+function addLogEntry(entry) {
+  requestLog.push({
+    timestamp: new Date().toISOString(),
+    timeLocal: new Date().toLocaleString(),
+    ...entry
+  });
+  if (requestLog.length > MAX_LOG_ENTRIES) requestLog.shift();
+}
+
+// Format duration in ms to a readable string
+function fmtDuration(ms) {
+  if (ms < 1000) return `${ms.toFixed(0)}ms`;
+  if (ms < 10000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${(ms / 1000).toFixed(0)}s`;
+}
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
@@ -179,7 +200,8 @@ function transformChoices(choices) {
 
 // Pipe an NVIDIA NIM streaming response to the client with proper SSE formatting
 // Strips nvext metadata, ensures exactly one [DONE] sent, handles buffer accumulation
-function pipeNimStream(nimStream, res) {
+// Optional onDone callback fires when the stream ends cleanly
+function pipeNimStream(nimStream, res, onDone) {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -216,6 +238,7 @@ function pipeNimStream(nimStream, res) {
     if (!doneSent) {
       res.write('data: [DONE]\n\n');
     }
+    if (typeof onDone === 'function') onDone();
     res.end();
   });
 
@@ -378,6 +401,7 @@ app.get('/v1/models', async (req, res) => {
 // Chat completions endpoint (main proxy)
 app.post('/v1/chat/completions', async (req, res) => {
   const reqId = nextRequestId();
+  const startTime = Date.now();
   try {
     // Validate required fields
     if (!req.body.model) {
@@ -426,7 +450,15 @@ app.post('/v1/chat/completions', async (req, res) => {
         res.setHeader('X-Proxy-Request-Id', reqId);
         res.setHeader('X-NIM-Model', nimRequest.model);
       }
-      pipeNimStream(response.data, res);
+      pipeNimStream(response.data, res, () => {
+        const dur = Date.now() - startTime;
+        addLogEntry({
+          reqId, model: nimRequest.model, status: 200,
+          duration: dur, durationFmt: fmtDuration(dur),
+          promptTokens: 0, completionTokens: 0, totalTokens: 0,
+          stream: true, endpoint: 'chat'
+        });
+      });
     } else {
       // Transform NIM response to clean OpenAI format
       const openaiResponse = {
@@ -444,6 +476,17 @@ app.post('/v1/chat/completions', async (req, res) => {
       };
 
       console.log(`[${reqId}] ← ${nimRequest.model} | ${openaiResponse.usage.total_tokens} tokens`);
+
+      // Log to request log
+      const dur = Date.now() - startTime;
+      addLogEntry({
+        reqId, model: nimRequest.model, status: 200,
+        duration: dur, durationFmt: fmtDuration(dur),
+        promptTokens: openaiResponse.usage.prompt_tokens || 0,
+        completionTokens: openaiResponse.usage.completion_tokens || 0,
+        totalTokens: openaiResponse.usage.total_tokens || 0,
+        stream: false, endpoint: 'chat'
+      });
 
       // Debug timing headers — enabled with ?debug=true query param
       if (req.query.debug === 'true') {
@@ -464,6 +507,13 @@ app.post('/v1/chat/completions', async (req, res) => {
       keyManager.markRateLimited(usedKeyIndex);
       // If all keys are now cooling down, give up immediately
       if (keyManager.allCoolingDown()) {
+        const dur = Date.now() - startTime;
+        addLogEntry({
+          reqId, model: nimRequest.model || 'unknown', status: 429,
+          duration: dur, durationFmt: fmtDuration(dur),
+          promptTokens: 0, completionTokens: 0, totalTokens: 0,
+          stream: false, endpoint: 'chat', error: 'all_keys_rate_limited'
+        });
         return res.status(429).json({
           error: {
             message: 'All NVIDIA API keys are rate limited. Please wait and try again.',
@@ -492,7 +542,15 @@ app.post('/v1/chat/completions', async (req, res) => {
             res.setHeader('X-NIM-Model', retryNimRequest.model);
             res.setHeader('X-Key-Rotated', 'true');
           }
-          pipeNimStream(retryResponse.data, res);
+          pipeNimStream(retryResponse.data, res, () => {
+            const dur = Date.now() - startTime;
+            addLogEntry({
+              reqId, model: retryNimRequest.model, status: 200,
+              duration: dur, durationFmt: fmtDuration(dur),
+              promptTokens: 0, completionTokens: 0, totalTokens: 0,
+              stream: true, endpoint: 'chat', retry: true
+            });
+          });
         } else {
           const openaiResponse = {
             id: retryResponse.data.id || `chatcmpl-${Date.now()}`,
@@ -509,10 +567,25 @@ app.post('/v1/chat/completions', async (req, res) => {
             res.setHeader('X-NIM-Model', retryNimRequest.model);
             res.setHeader('X-Key-Rotated', 'true');
           }
+          const dur = Date.now() - startTime;
+          addLogEntry({
+            reqId, model: retryNimRequest.model, status: 200,
+            duration: dur, durationFmt: fmtDuration(dur),
+            promptTokens: openaiResponse.usage.prompt_tokens || 0,
+            completionTokens: openaiResponse.usage.completion_tokens || 0,
+            totalTokens: openaiResponse.usage.total_tokens || 0,
+            stream: false, endpoint: 'chat', retry: true
+          });
           return res.json(openaiResponse);
         }
       } catch (retryError) {
         console.error(`[${reqId}] Retry also failed:`, retryError.message);
+        addLogEntry({
+          reqId, model: nimRequest.model || 'unknown', status: 429,
+          duration: Date.now() - startTime, durationFmt: fmtDuration(Date.now() - startTime),
+          promptTokens: 0, completionTokens: 0, totalTokens: 0,
+          stream: false, endpoint: 'chat', error: 'retry_failed'
+        });
         return res.status(429).json({
           error: {
             message: 'All NVIDIA API keys are rate limited. Please wait and try again.',
@@ -523,7 +596,15 @@ app.post('/v1/chat/completions', async (req, res) => {
       }
     }
 
-    res.status(error.response?.status || 500).json({
+    const errStatus = error.response?.status || 500;
+    addLogEntry({
+      reqId, model: req.body.model || 'unknown', status: errStatus,
+      duration: Date.now() - startTime, durationFmt: fmtDuration(Date.now() - startTime),
+      promptTokens: 0, completionTokens: 0, totalTokens: 0,
+      stream: false, endpoint: 'chat', error: error.message
+    });
+
+    res.status(errStatus).json({
       error: {
         message: error.response?.data?.error?.message || error.message || 'Internal server error',
         type: 'invalid_request_error',
@@ -658,9 +739,10 @@ app.get('/v1/models/ranked', async (req, res) => {
 // These endpoints are forwarded directly to NVIDIA with minimal transformation.
 for (const endpoint of PASSTHROUGH_ENDPOINTS) {
   app.post(endpoint, async (req, res) => {
+    const reqId = nextRequestId();
     const startTime = Date.now();
     try {
-      console.log(`[PROXY] → ${endpoint} | model: ${req.body.model || 'N/A'}`);
+      console.log(`[${reqId}] → ${endpoint} | model: ${req.body.model || 'N/A'}`);
 
       const passthroughKey = resolveApiKey(req);
 
@@ -678,12 +760,26 @@ for (const endpoint of PASSTHROUGH_ENDPOINTS) {
         res.setHeader('Content-Type', response.headers['content-type'] || 'audio/mpeg');
         response.data.pipe(res);
       } else {
-        console.log(`[PROXY] ← ${endpoint} | ${(Date.now() - startTime) / 1000}s`);
+        console.log(`[${reqId}] ← ${endpoint} | ${(Date.now() - startTime) / 1000}s`);
+        const dur = Date.now() - startTime;
+        addLogEntry({
+          reqId, model: req.body.model || endpoint, status: 200,
+          duration: dur, durationFmt: fmtDuration(dur),
+          promptTokens: 0, completionTokens: 0, totalTokens: 0,
+          stream: false, endpoint
+        });
         res.json(response.data);
       }
     } catch (error) {
-      console.error(`[PROXY] ${endpoint} error:`, error.message);
-      res.status(error.response?.status || 500).json({
+      console.error(`[${reqId}] ${endpoint} error:`, error.message);
+      const errStatus = error.response?.status || 500;
+      addLogEntry({
+        reqId, model: req.body.model || endpoint, status: errStatus,
+        duration: Date.now() - startTime, durationFmt: fmtDuration(Date.now() - startTime),
+        promptTokens: 0, completionTokens: 0, totalTokens: 0,
+        stream: false, endpoint, error: error.message
+      });
+      res.status(errStatus).json({
         error: {
           message: error.response?.data?.error?.message || error.message || 'Internal server error',
           type: 'invalid_request_error',
@@ -697,8 +793,10 @@ for (const endpoint of PASSTHROUGH_ENDPOINTS) {
 // Legacy completions endpoint (used by autocomplete/FIM models like StarCoder2)
 // Converts legacy format to chat completions format for NVIDIA NIM
 app.post('/v1/completions', async (req, res) => {
+  const reqId = nextRequestId();
+  const startTime = Date.now();
   try {
-    console.log(`[PROXY] → ${req.body.model} | legacy completions | tokens: ${req.body.max_tokens || 256}`);
+    console.log(`[${reqId}] → ${req.body.model} | legacy completions | tokens: ${req.body.max_tokens || 256}`);
 
     // Convert legacy format to chat format
     const prompt = req.body.prompt || '';
@@ -738,12 +836,28 @@ app.post('/v1/completions', async (req, res) => {
         }],
         usage: response.data.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
       };
-      console.log(`[PROXY] ← ${req.body.model} | ${legacyResponse.usage.total_tokens} tokens`);
+      console.log(`[${reqId}] ← ${req.body.model} | ${legacyResponse.usage.total_tokens} tokens`);
+      const dur = Date.now() - startTime;
+      addLogEntry({
+        reqId, model: req.body.model, status: 200,
+        duration: dur, durationFmt: fmtDuration(dur),
+        promptTokens: legacyResponse.usage.prompt_tokens || 0,
+        completionTokens: legacyResponse.usage.completion_tokens || 0,
+        totalTokens: legacyResponse.usage.total_tokens || 0,
+        stream: false, endpoint: 'completions'
+      });
       res.json(legacyResponse);
     }
   } catch (error) {
-    console.error('[PROXY] Legacy completions error:', error.message);
-    res.status(error.response?.status || 500).json({
+    console.error(`[${reqId}] Legacy completions error:`, error.message);
+    const errStatus = error.response?.status || 500;
+    addLogEntry({
+      reqId, model: req.body.model || 'unknown', status: errStatus,
+      duration: Date.now() - startTime, durationFmt: fmtDuration(Date.now() - startTime),
+      promptTokens: 0, completionTokens: 0, totalTokens: 0,
+      stream: false, endpoint: 'completions', error: error.message
+    });
+    res.status(errStatus).json({
       error: {
         message: error.response?.data?.error?.message || error.message || 'Internal server error',
         type: 'invalid_request_error',
@@ -751,6 +865,88 @@ app.post('/v1/completions', async (req, res) => {
       }
     });
   }
+});
+
+// ── Live Dashboard ──────────────────────────────────────────────────────────
+// Shows a real-time table of recent proxy requests — no refresh needed
+app.get('/logs', (req, res) => {
+  const log = [...requestLog].reverse();
+  const total = log.length;
+  const ok = log.filter(e => e.status >= 200 && e.status < 300).length;
+  const err = log.filter(e => e.status >= 400).length;
+  const avgMs = log.length > 0 ? (log.reduce((s, e) => s + e.duration, 0) / log.length).toFixed(0) : 0;
+  const byModel = {};
+  for (const e of log) {
+    byModel[e.model] = (byModel[e.model] || 0) + 1;
+  }
+  const topModels = Object.entries(byModel).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NIM Proxy Dashboard</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif; background:#0d1117; color:#c9d1d9; padding:20px; }
+  h1 { font-size:24px; margin-bottom:20px; color:#f0f6fc; }
+  .stats { display:flex; gap:16px; margin-bottom:24px; flex-wrap:wrap; }
+  .stat-card { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:16px 24px; min-width:120px; }
+  .stat-card .num { font-size:28px; font-weight:600; color:#f0f6fc; }
+  .stat-card .label { font-size:12px; color:#8b949e; margin-top:4px; text-transform:uppercase; letter-spacing:0.05em; }
+  .stat-card.ok .num { color:#3fb950; }
+  .stat-card.err .num { color:#f85149; }
+  .models { display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap; }
+  .model-tag { background:#21262d; border:1px solid #30363d; border-radius:4px; padding:4px 10px; font-size:12px; color:#8b949e; }
+  .model-tag .c { color:#f0f6fc; font-weight:600; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th { text-align:left; padding:8px 10px; border-bottom:2px solid #30363d; color:#8b949e; text-transform:uppercase; font-size:11px; letter-spacing:0.05em; }
+  td { padding:6px 10px; border-bottom:1px solid #21262d; white-space:nowrap; }
+  tr:hover td { background:#161b22; }
+  .status { display:inline-block; padding:1px 8px; border-radius:4px; font-weight:600; font-size:11px; }
+  .status-2xx { background:#0e4429; color:#3fb950; }
+  .status-4xx { background:#492808; color:#d29922; }
+  .status-5xx { background:#490202; color:#f85149; }
+  .model-name { font-family:'SF Mono','Cascadia Code','Fira Code',monospace; color:#79c0ff; }
+  .dur { font-family:'SF Mono',monospace; }
+  .tokens { color:#8b949e; }
+  .error-msg { color:#f85149; font-size:11px; }
+  .time { color:#484f58; font-size:11px; }
+  .retry { color:#d29922; font-size:10px; margin-left:4px; }
+  .stream-badge { display:inline-block; padding:0 6px; border-radius:3px; font-size:10px; background:#1f2937; color:#8b949e; margin-left:4px; }
+  .footer { margin-top:20px; font-size:11px; color:#484f58; text-align:center; }
+</style>
+</head>
+<body>
+<h1>NIM Proxy Dashboard</h1>
+<div class="stats">
+  <div class="stat-card"><div class="num">${total}</div><div class="label">Requests</div></div>
+  <div class="stat-card ok"><div class="num">${ok}</div><div class="label">Success</div></div>
+  <div class="stat-card err"><div class="num">${err}</div><div class="label">Errors</div></div>
+  <div class="stat-card"><div class="num">${avgMs}ms</div><div class="label">Avg Duration</div></div>
+</div>
+<div class="models">${topModels.map(([m, c]) => `<span class="model-tag"><span class="c">${c}</span> ${m}</span>`).join('')}</div>
+<table>
+<thead><tr><th>Time</th><th>Status</th><th>Model</th><th>Dur</th><th>Tokens</th><th>Endpoint</th></tr></thead>
+<tbody>${log.slice(0, 100).map(e => {
+  const statusClass = e.status < 300 ? 'status-2xx' : e.status < 500 ? 'status-4xx' : 'status-5xx';
+  const tokStr = e.totalTokens ? `${e.promptTokens}→${e.completionTokens} (${e.totalTokens})` : '—';
+  const retryTag = e.retry ? '<span class="retry">↻</span>' : '';
+  const streamTag = e.stream ? '<span class="stream-badge">stream</span>' : '';
+  return `<tr>
+    <td class="time">${e.timeLocal || ''}</td>
+    <td><span class="status ${statusClass}">${e.status}</span></td>
+    <td class="model-name">${e.model}${retryTag}${streamTag}${e.error ? `<br><span class="error-msg">${e.error}</span>` : ''}</td>
+    <td class="dur">${e.durationFmt}</td>
+    <td class="tokens">${tokStr}</td>
+    <td>${e.endpoint || 'chat'}</td>
+  </tr>`;
+}).join('')}</tbody>
+</table>
+<div class="footer">Showing last ${Math.min(total, 100)} of ${total} requests · NIM Proxy · ${new Date().toISOString()}</div>
+</body>
+</html>`);
 });
 
 // Catch-all for unsupported endpoints
@@ -773,7 +969,8 @@ if (require.main === module) {
     // Preload benchmark data on startup
     shared.loadBenchmarkData();
     console.log('OpenAI to NVIDIA NIM Proxy running on port ' + PORT);
-    console.log(`Health check: http://localhost:${PORT}/health`);
+    console.log(`Dashboard: http://localhost:${PORT}/logs`);
+    console.log(`Health:    http://localhost:${PORT}/health`);
     console.log(`Chat: http://localhost:${PORT}/v1/chat/completions`);
     console.log(`Embeddings: http://localhost:${PORT}/v1/embeddings`);
     console.log(`Images: http://localhost:${PORT}/v1/images/generations`);
