@@ -245,6 +245,43 @@ test('a retired model surfaces NVIDIA\'s end-of-life detail as 410, not axios bo
   } finally { await ctx.close(); }
 });
 
+test('403 for an unsupported capability does NOT cost a pool key its place', async () => {
+  const ctx = await withProxy();
+  try {
+    // Real shape: a text-only model sent image content answers
+    // {"message":"Forbidden","type":"Forbidden","code":403} while the key is fine.
+    ctx.stub.setMode(MODES.FORBIDDEN_CAPABILITY);
+    const { status, body } = await ctx.json('/v1/chat/completions', { method: 'POST', body: CHAT });
+
+    assert.equal(status, 403);
+    assert.equal(body.error.type, 'permission_denied');
+    assert.match(body.error.message, /does not support what was sent/);
+
+    const logs = await ctx.json('/api/logs');
+    assert.equal(logs.body.keys.disabled, 0, 'key stays in rotation');
+    assert.equal(ctx.stub.state.chatCalls, 1, 'not retried across keys');
+
+    // and the key still works afterwards
+    ctx.stub.setMode(MODES.OK);
+    const next = await ctx.json('/v1/chat/completions', { method: 'POST', body: CHAT });
+    assert.equal(next.status, 200);
+  } finally { await ctx.close(); }
+});
+
+test('403 that really is an authorization failure still disables the key', async () => {
+  const ctx = await withProxy({ NIM_API_KEY: 'nvapi-keythatisrejected000000', NIM_API_KEY_2: '' });
+  try {
+    // Real shape: {"status":403,"title":"Forbidden","detail":"Authorization failed"}
+    ctx.stub.setMode(MODES.FORBIDDEN_AUTH);
+    const { status, body } = await ctx.json('/v1/chat/completions', { method: 'POST', body: CHAT });
+    assert.equal(status, 502);
+    assert.equal(body.error.type, 'upstream_auth_error');
+
+    const logs = await ctx.json('/api/logs');
+    assert.equal(logs.body.keys.disabled, 1, 'dead credential is taken out of rotation');
+  } finally { await ctx.close(); }
+});
+
 test('a speech endpoint the upstream does not implement reports 501 with guidance, not a bare 404', async () => {
   const ctx = await withProxy();
   try {

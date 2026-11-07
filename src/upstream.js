@@ -12,7 +12,7 @@ const https = require('https');
 const http = require('http');
 const axios = require('axios');
 const { KeyPool } = require('./keys');
-const { ProxyError, fromUpstream, isRetryable, isRateLimitError } = require('./errors');
+const { ProxyError, fromUpstream, isRetryable, isRateLimitError, authFailureKind } = require('./errors');
 
 const sleep = (ms, signal) => new Promise((resolve, reject) => {
   if (signal?.aborted) return reject(new ProxyError('Request aborted', { status: 499, type: 'aborted' }));
@@ -144,12 +144,13 @@ class Upstream {
         const status = err?.response?.status;
         const retryAfter = err?.response?.headers?.['retry-after'];
 
-        if ((status === 401 || status === 403) && picked.index >= 0) {
+        const authKind = authFailureKind(err);
+        if (authKind === 'credential' && picked.index >= 0) {
           this.keyPool.disable(picked.index, `rejected (HTTP ${status})`);
           if (this.keyPool.size - this.keyPool.status().disabled <= 0) throw fromUpstream(err);
           continue;
         }
-        if ((status === 401 || status === 403) && picked.index < 0) {
+        if (authKind === 'credential' && picked.index < 0) {
           // Caller's own key: their problem, report it faithfully.
           throw new ProxyError('The API key supplied with this request was rejected by NVIDIA.', { status: 401, type: 'invalid_request_error', cause: err });
         }

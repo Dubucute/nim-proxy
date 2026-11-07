@@ -69,6 +69,29 @@ function isMissingRoute(err) {
   return !body || /page not found|not found|404/i.test(body);
 }
 
+/**
+ * NVIDIA uses 403 for two unrelated things, verified against the live gateway:
+ *
+ *   bad key           -> 403 {"detail":"Authorization failed"}
+ *   model/feature     -> 403 {"message":"Forbidden","type":"Forbidden"}   (e.g. image
+ *   not permitted        content sent to a text-only model)
+ *
+ * Only the first may cost a pooled key its place in the rotation. Treating every
+ * 403 as a credential failure disabled a perfectly good key the moment a caller
+ * asked a text model to look at a picture.
+ */
+const AUTH_FAILURE_PATTERN = /authorization failed|unauthori[sz]ed|invalid (?:jwt|api key|api_key|token|credentials)|authentication failed|invalid_api_key|no permission to access/i;
+
+function authFailureKind(err) {
+  const response = upstreamResponse(err);
+  const status = response?.status;
+  if (status === 401) return 'credential';
+  if (status !== 403) return null;
+  const body = response.data;
+  const text = typeof body === 'string' ? body : JSON.stringify(body ?? {});
+  return AUTH_FAILURE_PATTERN.test(text) ? 'credential' : 'capability';
+}
+
 // NVIDIA -> OpenAI error-type mapping. Status comes from upstream when present
 // so clients can retry correctly (429/503 are retryable, 400 is not).
 function fromUpstream(err) {
@@ -85,10 +108,20 @@ function fromUpstream(err) {
     return new ProxyError(`Cannot reach NVIDIA NIM (${err.code}). Check NIM_API_BASE and network access.`, { status: 502, type: 'upstream_unavailable', cause: err });
   }
 
-  if (status === 401 || status === 403) {
+  if (authFailureKind(err) === 'credential') {
     return new ProxyError('Upstream rejected the configured API key. Verify NIM_API_KEY at build.nvidia.com.', {
       status: 502, type: 'upstream_auth_error', cause: err,
     });
+  }
+  if (authFailureKind(err) === 'capability') {
+    const detail = upstreamMessage && !/^forbidden$/i.test(upstreamMessage)
+      ? `: ${upstreamMessage}` : '';
+    return new ProxyError(
+      `NVIDIA refused this request for that model (HTTP 403)${detail}. `
+      + 'The model most likely does not support what was sent — image or audio content, for instance. '
+      + 'Check the capabilities flags in /v1/models before retrying.',
+      { status: 403, type: 'permission_denied', cause: err },
+    );
   }
   if (status === 404 || status === 422 || status === 400) {
     // Model/parameter problems are the caller's to fix: pass the status through.
@@ -147,4 +180,7 @@ function errorBody(err, reqId) {
   return { error: { ...base, request_id: reqId } };
 }
 
-module.exports = { ProxyError, fromUpstream, isRetryable, isRateLimitError, errorBody, extractUpstreamMessage, isMissingRoute, upstreamResponse };
+module.exports = {
+  ProxyError, fromUpstream, isRetryable, isRateLimitError, errorBody,
+  extractUpstreamMessage, isMissingRoute, upstreamResponse, authFailureKind,
+};

@@ -23,6 +23,8 @@ const MODES = {
   UNAUTHORIZED: '401',
   BAD_REQUEST_TEXT: '400-text-plain-json',
   MODEL_RETIRED: '410-problem-json',
+  FORBIDDEN_CAPABILITY: '403-forbidden-capability',
+  FORBIDDEN_AUTH: '403-forbidden-auth',
 };
 
 function sse(res, frames) {
@@ -77,6 +79,18 @@ function startStub({ idleMs = 60000 } = {}) {
         if (state.mode === MODES.SERVER_ERROR) {
           res.writeHead(500, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ error: { message: 'server exploded' } }));
+          return;
+        }
+        if (state.mode === MODES.FORBIDDEN_CAPABILITY) {
+          // What the gateway returns when a text-only model is sent image content.
+          res.writeHead(403, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ message: 'Forbidden', type: 'Forbidden', code: 403 }));
+          return;
+        }
+        if (state.mode === MODES.FORBIDDEN_AUTH) {
+          // What the gateway returns for a key it will not accept.
+          res.writeHead(403, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ status: 403, title: 'Forbidden', detail: 'Authorization failed' }));
           return;
         }
         if (state.mode === MODES.MODEL_RETIRED) {
