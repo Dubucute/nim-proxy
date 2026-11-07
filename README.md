@@ -74,7 +74,32 @@ Your proxy is then live at `https://your-username.alwaysdata.net` — check
 
 Import the repository. `vercel.json` routes everything to `api/index.js`, which re-uses the
 same Express app. Set the environment variables in Project Settings ▸ Environment Variables.
-Serverless caps response time, so for long streaming sessions prefer a persistent host.
+
+⚠️ **Do not set `functions.<path>.runtime` in `vercel.json`.** Vercel's published schema
+describes it as "the npm package name of a Runtime, including its version", so it wants
+`@vercel/node@5.0.0` — not `nodejs22.x`. Getting this wrong fails the deploy with:
+
+```
+Error: [invalid_function_runtime] Function Runtimes must have a valid version,
+for example `now-php@1.0.0`.
+```
+
+The schema cannot catch it (it only requires a string), so `tools/validate-vercel-json.py`
+enforces the real rule in CI. Omit `runtime` and Vercel picks the Node.js version itself,
+honouring `engines.node` in `package.json`. The shipped config sets only `memory` and
+`maxDuration: "max"`, which adapts to your plan's ceiling.
+
+Serverless is a **poor fit** for a token-streaming proxy, and not only because of the time
+cap:
+
+- the request log, key cooldowns, model cache and rate-limiter are all **per-instance
+  memory**, so they reset on every cold start and are not shared across concurrent lambdas
+- `maxDuration` caps a non-streaming completion outright — one `meta/muse-glimmer-30b` reply
+  measured 10.4s, and reasoning models regularly exceed a Hobby plan's ceiling
+- SSE works, but buffering between the lambda and the client can defeat token-by-token
+  delivery
+
+Use Vercel for demos; use alwaysdata, Docker or any persistent Node host for real traffic.
 
 ### Docker
 

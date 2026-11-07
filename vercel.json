@@ -3,9 +3,8 @@
   "framework": null,
   "functions": {
     "api/index.js": {
-      "runtime": "nodejs22.x",
       "memory": 1024,
-      "maxDuration": 60
+      "maxDuration": "max"
     }
   },
   "rewrites": [

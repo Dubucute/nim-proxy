@@ -63,8 +63,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install validator dependency
+        run: pip install jsonschema
+
       - name: Compile
         run: python -m py_compile refresh_config.py benchmark_openai.py test_deepeval_nim.py
+
+      # The published schema types functions.runtime as a plain string, so it
+      # accepts "nodejs22.x"; Vercel rejects that at deploy time with
+      # [invalid_function_runtime]. Catch it here instead of after a push.
+      - name: Validate vercel.json
+        run: python tools/validate-vercel-json.py
+
       - name: Tooling refuses to run without a key
         run: |
           unset NIM_API_KEY NVIDIA_API_KEY
