@@ -165,6 +165,24 @@ Lists every model NVIDIA reports, each annotated with:
 
 `total` always equals `data.length` — filters are applied before the count, so a filtered list reports the number of models you actually received.
 
+**The catalogue is global, not account-filtered.** `/v1/models` lists what NVIDIA
+publishes, which is not the same as what the key in `NIM_API_KEY` may invoke. A model can
+be listed and still fail at request time; the proxy distinguishes those cases instead of
+returning an opaque failure:
+
+| What happened | Response |
+|---|---|
+| name does not exist at all | `404 model_not_found` — "No model named X exists… GET /v1/models lists every model id" |
+| listed, but this key is not entitled | `404 model_unavailable` — "NVIDIA lists X in its catalogue, but the account holding the server key is not entitled to invoke it" |
+| retired (end of life) | `410 model_unavailable` — includes NVIDIA's own EOL date |
+| model refuses the input (e.g. image sent to a text model) | `403 permission_denied` — check the `capabilities` flags |
+
+Observed example: `moonshotai/kimi-k2.6` is listed but returns
+`Function '<uuid>': Not found for account '<id>'` for some accounts. The proxy reports
+that as `model_unavailable` and **redacts the account and function identifiers** — this
+proxy has no caller authentication, so upstream error text is not a safe place to publish
+operator identifiers.
+
 #### Query params
 
 | Param | Example | Description |

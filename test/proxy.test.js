@@ -282,6 +282,36 @@ test('403 that really is an authorization failure still disables the key', async
   } finally { await ctx.close(); }
 });
 
+test('an unknown model reads as model_not_found, not a bare "404 page not found"', async () => {
+  const ctx = await withProxy();
+  try {
+    ctx.stub.setMode(MODES.UNKNOWN_MODEL);
+    const model = 'moonshotai/kimi-k3.1-pro';
+    const { status, body } = await ctx.json('/v1/chat/completions', {
+      method: 'POST', body: { model, messages: [{ role: 'user', content: 'hi' }] },
+    });
+    assert.equal(status, 404);
+    assert.equal(body.error.type, 'model_not_found');
+    assert.match(body.error.message, /No model named "moonshotai\/kimi-k3\.1-pro" exists/);
+    assert.match(body.error.message, /GET \/v1\/models/);
+  } finally { await ctx.close(); }
+});
+
+test('a listed-but-not-entitled model says so, and never echoes the account id', async () => {
+  const ctx = await withProxy();
+  try {
+    ctx.stub.setMode(MODES.NOT_ENTITLED);
+    const { status, body, text } = await ctx.json('/v1/chat/completions', {
+      method: 'POST', body: { model: 'moonshotai/kimi-k2.6', messages: [{ role: 'user', content: 'hi' }] },
+    });
+    assert.equal(status, 404);
+    assert.equal(body.error.type, 'model_unavailable');
+    assert.match(body.error.message, /not entitled to invoke it/);
+    assert.ok(!text.includes('55cgEBZZ'), 'NVIDIA account id must not leak to callers');
+    assert.ok(!text.includes('23d4f03a'), 'internal function id is not forwarded either');
+  } finally { await ctx.close(); }
+});
+
 test('a speech endpoint the upstream does not implement reports 501 with guidance, not a bare 404', async () => {
   const ctx = await withProxy();
   try {

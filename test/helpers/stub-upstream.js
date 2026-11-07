@@ -25,6 +25,8 @@ const MODES = {
   MODEL_RETIRED: '410-problem-json',
   FORBIDDEN_CAPABILITY: '403-forbidden-capability',
   FORBIDDEN_AUTH: '403-forbidden-auth',
+  UNKNOWN_MODEL: '404-unknown-model',
+  NOT_ENTITLED: '404-not-entitled',
 };
 
 function sse(res, frames) {
@@ -91,6 +93,22 @@ function startStub({ idleMs = 60000 } = {}) {
           // What the gateway returns for a key it will not accept.
           res.writeHead(403, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ status: 403, title: 'Forbidden', detail: 'Authorization failed' }));
+          return;
+        }
+        if (state.mode === MODES.UNKNOWN_MODEL) {
+          // A model name the gateway does not route: the router's own 404.
+          res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+          res.end('404 page not found\n');
+          return;
+        }
+        if (state.mode === MODES.NOT_ENTITLED) {
+          // Listed in /v1/models, but the NVCF function is not provisioned for
+          // the account behind the key. Note the account id in the detail.
+          res.writeHead(404, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({
+            status: 404, title: 'Not Found',
+            detail: "Function '23d4f03a-b8a6-4adb-a183-7daa083a09cc': Not found for account '55cgEBZZhs6PbHLVW-vpt1hGsdhhdAO0YnTi8Cfs2Y0'",
+          }));
           return;
         }
         if (state.mode === MODES.MODEL_RETIRED) {

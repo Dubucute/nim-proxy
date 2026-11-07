@@ -32,6 +32,20 @@ class ProxyError extends Error {
   }
 }
 
+/** The model the caller asked for, if the failed request body still carries it. */
+function requestedModel(err) {
+  const raw = err?.config?.data;
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw.model || null;
+  try { return JSON.parse(raw)?.model || null; } catch { return null; }
+}
+
+/** Strip operator identifiers NVIDIA puts in error text. */
+function redactAccountIds(text) {
+  if (typeof text !== 'string') return text;
+  return text.replace(/account\s+'[^']*'/gi, "account '***'");
+}
+
 // NVIDIA's gateway answers some errors as JSON wrapped in `text/plain`, so a
 // string body is not automatically a plain message. Try to unwrap it before
 // falling back to the raw text, otherwise the client sees a JSON blob nested
@@ -44,14 +58,14 @@ function extractUpstreamMessage(data) {
       try {
         const parsed = JSON.parse(trimmed);
         const inner = parsed?.error?.message || parsed?.detail || parsed?.title || parsed?.message;
-        if (inner) return String(inner);
+        if (inner) return redactAccountIds(String(inner));
       } catch { /* not JSON after all: fall through to the raw text */ }
     }
     if (!trimmed) return null;
-    return trimmed.length > 500 ? `${trimmed.slice(0, 500)}…` : trimmed;
+    return redactAccountIds(trimmed.length > 500 ? `${trimmed.slice(0, 500)}…` : trimmed);
   }
   const msg = data?.error?.message || data?.detail || data?.title || data?.message;
-  return msg ? String(msg) : null;
+  return msg ? redactAccountIds(String(msg)) : null;
 }
 
 /** Find the original upstream response, following ProxyError cause chains. */
@@ -123,6 +137,25 @@ function fromUpstream(err) {
       { status: 403, type: 'permission_denied', cause: err },
     );
   }
+  // 404 has three distinct meanings on this gateway, and conflating them sends
+  // callers looking in the wrong place.
+  if (status === 404) {
+    const model = requestedModel(err);
+    if (/page not found/i.test(upstreamMessage || '')) {
+      return new ProxyError(
+        `No model named ${model ? `"${model}"` : 'that'} exists on this gateway. `
+        + 'GET /v1/models lists every model id it serves.',
+        { status: 404, type: 'model_not_found', cause: err },
+      );
+    }
+    if (/not found for account/i.test(upstreamMessage || '')) {
+      return new ProxyError(
+        `NVIDIA lists ${model ? `"${model}"` : 'that model'} in its catalogue, but the account holding the server key `
+        + 'is not entitled to invoke it. Pick a different model from /v1/models.',
+        { status: 404, type: 'model_unavailable', cause: err },
+      );
+    }
+  }
   if (status === 404 || status === 422 || status === 400) {
     // Model/parameter problems are the caller's to fix: pass the status through.
     return new ProxyError(upstreamMessage || err?.message || 'Invalid request for the requested model', {
@@ -183,4 +216,5 @@ function errorBody(err, reqId) {
 module.exports = {
   ProxyError, fromUpstream, isRetryable, isRateLimitError, errorBody,
   extractUpstreamMessage, isMissingRoute, upstreamResponse, authFailureKind,
+  requestedModel, redactAccountIds,
 };
