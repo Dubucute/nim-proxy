@@ -7,8 +7,16 @@ const path = require('path');
 // Path to benchmark data (same directory as this script)
 const BENCHMARK_PATH = path.join(__dirname, 'benchmark_data.json');
 
-// Vision detection — known vision model keywords
+// Vision detection — name heuristics plus an explicit allow-list.
+// Heuristics alone are not enough: `meta/muse-glimmer-30b` accepts image_url
+// content (verified against the live gateway) but its name contains no vision
+// keyword, so it was reported as text-only. Anything confirmed by testing goes
+// in KNOWN_VISION_MODELS; NVIDIA does not expose a capability field to derive
+// this from.
 const VISION_KEYWORDS = ['vision', 'vlm', 'vl', 'multimodal', 'fuyu', 'kosmos', 'neva', 'vila', 'nvclip', 'deplot'];
+const KNOWN_VISION_MODELS = [
+  'meta/muse-glimmer-30b', // tested 2026-11-07: image_url parts accepted via data URI
+];
 
 // Benchmark data cache
 let benchmarkCache = { data: null, lastFetched: 0 };
@@ -48,6 +56,7 @@ function loadBenchmarkData() {
  */
 function getVisionCapability(modelId) {
   const low = modelId.toLowerCase();
+  if (KNOWN_VISION_MODELS.some((m) => low === m || low.startsWith(`${m}/`))) return true;
   return VISION_KEYWORDS.some(kw => low.includes(kw));
 }
 

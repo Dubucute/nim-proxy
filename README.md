@@ -200,7 +200,7 @@ returning an opaque failure:
 | name does not exist at all | `404 model_not_found` — "No model named X exists… GET /v1/models lists every model id" |
 | listed, but this key is not entitled | `404 model_unavailable` — "NVIDIA lists X in its catalogue, but the account holding the server key is not entitled to invoke it" |
 | retired (end of life) | `410 model_unavailable` — includes NVIDIA's own EOL date |
-| model refuses the input (e.g. image sent to a text model) | `403 permission_denied` — check the `capabilities` flags |
+| gateway refused the request (often an external image URL) | `403 permission_denied` — see [Vision](#-vision-images); NVIDIA uses the same 403 for bad credentials, so the body is inspected to tell them apart |
 
 Observed example: `moonshotai/kimi-k2.6` is listed but returns
 `Function '<uuid>': Not found for account '<id>'` for some accounts. The proxy reports
@@ -281,7 +281,62 @@ Legacy text completions, for autocomplete/FIM clients. `prompt` becomes a single
 message, `max_tokens` defaults to 256 and `temperature` to 0.2, and the chat response
 is mapped back to `text_completion` shape. Streaming works here too.
 
+### 🖼️ Vision (images)
+
+Multimodal chat works: send OpenAI-style `image_url` content parts to a vision model.
+Two facts about NVIDIA's hosted gateway shape how you should do it:
+
+1. **The gateway refuses to fetch most external image URLs.** A request containing
+   `https://…/image.png` comes back as a bare `403 {"message":"Forbidden"}` — the same
+   status it uses for bad credentials, which makes it easy to misdiagnose. The identical
+   bytes sent as a `data:image/png;base64,…` URI return `200`. Verified 2026-11-07 against
+   `meta/muse-glimmer-30b`.
+2. **Model names are not a reliable capability signal.** `muse-glimmer-30b` accepts images
+   and its name says nothing about it, so `/v1/models` reports vision from a keyword list
+   plus an explicit allow-list in `shared.js` (`KNOWN_VISION_MODELS`). If a model is missing,
+   add it there — or just try it; the proxy does not gate on the flag.
+
+With `INLINE_REMOTE_IMAGES=true` the proxy downloads remote images itself and forwards them
+as data URIs, so ordinary clients keep sending URLs:
+
+```bash
+INLINE_REMOTE_IMAGES=true npm start
+```
+
+```python
+client = OpenAI(base_url="http://localhost:3000/v1", api_key="unused")
+r = client.chat.completions.create(
+    model="meta/muse-glimmer-30b",
+    messages=[{"role": "user", "content": [
+        {"type": "text", "text": "Describe this image in one sentence."},
+        {"type": "image_url", "image_url": {"url": "https://upload.wikimedia.org/wikipedia/en/7/7d/Lenna_%28test_image%29.png"}},
+    ]}],
+    max_tokens=1200,   # reasoning models spend budget thinking first
+)
+print(r.choices[0].message.content)
+# "A young woman in a wide-brimmed straw hat trimmed with purple feathers looks over her shoulder toward the camera beside a round mirror."
+```
+
+Measured: 6.0s, `prompt_tokens 427 / completion 165`, with ~630 chars of
+`reasoning_content` streamed before the answer.
+
+**Enabling this turns your proxy into an HTTP client for caller-supplied URLs**, so it is
+off by default and guarded:
+
+| Guard | Default |
+|---|---|
+| Private/loopback/metadata addresses (`169.254.169.254`, `127.0.0.1`, RFC1918…) | refused — `ALLOW_PRIVATE_IMAGE_HOSTS=true` to permit |
+| Redirect hops re-validated against the same rules | 3 max |
+| Image size | 8 MB (`IMAGE_MAX_BYTES`) |
+| Content must actually be an image (magic bytes beat a lying `content-type`) | enforced |
+| Optional host allow-list | `ALLOWED_IMAGE_HOSTS=cdn.example.com,images.example.com` |
+
+If you leave the flag off, inline images yourself as data URIs — that always works and
+costs nothing but request size.
+
 ### Reasoning models (`reasoning_content`)
+
+
 
 Some catalogue models think before they answer and put that thinking in
 `reasoning_content` rather than `content` — measured against `meta/muse-glimmer-30b`:
@@ -649,6 +704,11 @@ annotated list.
 | `KEY_COOLDOWN_MS` | `30000` | Base rate-limit cooldown per key |
 | `CORS_ORIGIN` | `*` | `*` or comma-separated allow-list |
 | `ALLOW_BODY_API_KEY` | `true` | Accept `apiKey` in the JSON body |
+| `INLINE_REMOTE_IMAGES` | `false` | Download `image_url` parts and resend them as data URIs (see [Vision](#-vision-images)) |
+| `IMAGE_MAX_BYTES` | `8388608` | Cap for one downloaded image |
+| `IMAGE_TIMEOUT_MS` | `15000` | Per-image download timeout |
+| `ALLOWED_IMAGE_HOSTS` | all public | Comma-separated host allow-list for image downloads |
+| `ALLOW_PRIVATE_IMAGE_HOSTS` | `false` | Permit loopback/RFC1918 image hosts (SSRF risk) |
 | `DASHBOARD_ENABLED` | `true` | Serve `/logs` |
 | `EXPOSE_INTERNAL_ENDPOINTS` | `true` | Serve `/api/logs`, `/health?deep` |
 | `MODELS_CACHE_TTL_MS` / `MODELS_STALE_GRACE_MS` | `900000` / `86400000` | Catalogue freshness and stale ceiling |

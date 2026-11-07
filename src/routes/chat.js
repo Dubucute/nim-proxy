@@ -18,6 +18,7 @@ const { relaySseStream } = require('../sse');
 const { ProxyError, errorBody } = require('../errors');
 const { clientIp } = require('../middleware');
 const { fmtDuration } = require('../request-log');
+const { inlineRemoteImages, ImageFetchError, hasImageContent } = require('../vision');
 
 function debugHeadersEnabled(query) {
   return query.debug === 'true' || query.debug === '1';
@@ -62,7 +63,35 @@ async function runCompletion(req, res, deps, { body, shape }) {
     );
   }
 
-  const { request: nimRequest, notes } = buildNimRequest(body);
+  const { request: built, notes: buildNotes } = buildNimRequest(body);
+
+  // NVIDIA's gateway will not fetch external image URLs (it answers a bare
+  // `403 Forbidden`), so vision requests carrying https:// image parts must be
+  // inlined as data URIs before they go upstream. Opt-in via INLINE_REMOTE_IMAGES.
+  let nimRequest = built;
+  const notes = [...buildNotes];
+  if (config.inlineRemoteImages && hasImageContent(built.messages)) {
+    try {
+      const inlined = await inlineRemoteImages(built, {
+        enabled: true,
+        maxBytes: config.imageMaxBytes,
+        timeoutMs: config.imageTimeoutMs,
+        allowedHosts: config.allowedImageHosts,
+        denyPrivate: !config.allowPrivateImageHosts,
+      });
+      nimRequest = inlined.request;
+      notes.push(...inlined.notes);
+    } catch (err) {
+      if (err instanceof ImageFetchError) {
+        throw new ProxyError(err.message, { status: err.status, type: 'invalid_request_error', cause: err });
+      }
+      throw err;
+    }
+  } else if (!config.inlineRemoteImages && hasImageContent(built.messages)
+    && built.messages.some((m) => Array.isArray(m?.content)
+      && m.content.some((p) => p?.type === 'image_url' && /^https?:\/\//i.test(p?.image_url?.url || '')))) {
+    notes.push('remote image URL passed through as-is; NVIDIA may reject it (set INLINE_REMOTE_IMAGES=true)');
+  }
   const abort = linkClientAbort(req, res);
 
   logger.info(`[${req.id}] → ${nimRequest.model} | stream=${wantsStream} | max_tokens=${nimRequest.max_tokens} | key=${callerKey.source === 'pool' ? 'pool' : 'caller'}${notes.length ? ` | notes=${notes.join(';')}` : ''}`);

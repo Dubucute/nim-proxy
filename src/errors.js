@@ -128,12 +128,12 @@ function fromUpstream(err) {
     });
   }
   if (authFailureKind(err) === 'capability') {
-    const detail = upstreamMessage && !/^forbidden$/i.test(upstreamMessage)
-      ? `: ${upstreamMessage}` : '';
+    const sentImage = /image/i.test(String(err?.config?.data || ''));
+    const hint = sentImage
+      ? 'This usually means NVIDIA\'s gateway refused to fetch an external image URL — it allows data URIs but blocks many https:// ones. Set INLINE_REMOTE_IMAGES=true so the proxy inlines them, or send the image as a data URI yourself.'
+      : 'The model most likely does not support what was sent — image or audio content, for instance. Check the capabilities flags in /v1/models before retrying.';
     return new ProxyError(
-      `NVIDIA refused this request for that model (HTTP 403)${detail}. `
-      + 'The model most likely does not support what was sent — image or audio content, for instance. '
-      + 'Check the capabilities flags in /v1/models before retrying.',
+      `NVIDIA refused this request for that model (HTTP 403). ${hint}`,
       { status: 403, type: 'permission_denied', cause: err },
     );
   }

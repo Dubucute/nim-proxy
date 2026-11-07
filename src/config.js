@@ -93,6 +93,22 @@ function load(env = process.env) {
 
     requestLogSize: num(env, 'REQUEST_LOG_SIZE', 10, 10000) ?? DEFAULTS.REQUEST_LOG_SIZE,
 
+    // NVIDIA's hosted gateway refuses to fetch external image URLs (403), so the
+    // proxy downloads them and inlines them as data URIs. Off by default until a
+    // caller opts in, because it makes the proxy an HTTP client for caller-chosen
+    // URLs — see ALLOWED_IMAGE_HOSTS before enabling on a public deployment.
+    inlineRemoteImages: bool(env, 'INLINE_REMOTE_IMAGES') ?? false,
+    imageMaxBytes: num(env, 'IMAGE_MAX_BYTES', 1024, 64 * 1024 * 1024) ?? 8 * 1024 * 1024,
+    imageTimeoutMs: num(env, 'IMAGE_TIMEOUT_MS', 500) ?? 15000,
+    // Private/loopback image hosts are refused by default (SSRF + cloud metadata
+    // endpoints). Set true only when images legitimately live on your LAN.
+    allowPrivateImageHosts: bool(env, 'ALLOW_PRIVATE_IMAGE_HOSTS') ?? false,
+    allowedImageHosts: (() => {
+      const raw = env.ALLOWED_IMAGE_HOSTS;
+      if (!raw || !raw.trim()) return null;
+      return new Set(raw.split(',').map((h) => h.trim().toLowerCase()).filter(Boolean));
+    })(),
+
     corsOrigins: parseOrigins(env.CORS_ORIGIN ?? DEFAULTS.CORS_ORIGIN),
     allowBodyApiKey: bool(env, 'ALLOW_BODY_API_KEY') ?? DEFAULTS.ALLOW_BODY_API_KEY,
     dashboardEnabled: bool(env, 'DASHBOARD_ENABLED') ?? DEFAULTS.DASHBOARD_ENABLED,
