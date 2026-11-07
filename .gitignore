@@ -1,6 +1,17 @@
 node_modules/
 .env
+.env.*
+!.env.example
 __pycache__/
+*.pyc
 benchmark_artifacts/
 .venv/
 .continue/
+.deepeval/
+.vercel/
+*.log
+.DS_Store
+# local scratch / verification artifacts
+tmp-verify/
+backup-origin.git/
+nim-proxy.tar.gz

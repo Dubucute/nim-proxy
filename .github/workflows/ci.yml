@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Node ${{ matrix.node }} / tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22', '24']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Syntax check
+        run: |
+          node --check server.js
+          node --check shared.js
+          for f in src/*.js src/routes/*.js; do node --check "$f"; done
+
+      - name: Test
+        run: npm run test:ci
+        env:
+          TEST_LOG_LEVEL: warn
+
+      - name: Boot smoke test (no keys configured must not crash)
+        run: |
+          node server.js &
+          SERVER=$!
+          trap "kill $SERVER" EXIT
+          for i in $(seq 1 40); do
+            curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1 && break
+            sleep 0.5
+          done
+          curl -fsS http://127.0.0.1:3000/ | grep -q nim-proxy
+          # degraded without keys, but alive and JSON-shaped
+          curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/health | grep -qE '^(200|503)$'
+          curl -s http://127.0.0.1:3000/v1/chat/completions -X POST \
+            -H 'content-type: application/json' -d '{"model":"x","messages":[{"role":"user","content":"hi"}]}' \
+            | grep -q 'No NVIDIA API key available'
+
+  python:
+    name: Benchmark tooling
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile
+        run: python -m py_compile refresh_config.py benchmark_openai.py test_deepeval_nim.py
+      - name: Tooling refuses to run without a key
+        run: |
+          unset NIM_API_KEY NVIDIA_API_KEY
+          python benchmark_openai.py 2>&1 | grep -q 'No NVIDIA API key in the environment'
+          python refresh_config.py 2>&1 | grep -q 'NIM_API_KEY is not set'
+
+  security:
+    name: Secrets and dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Real NVIDIA keys were committed to this repo once; keep that from recurring.
+      - name: Scan for NVIDIA API keys
+        run: |
+          if git grep -nE 'nvapi-[A-Za-z0-9_-]{20,}' -- ':!README.md' ':!.env.example' ':!test' | grep -v 'nvapi-\(your\|test\|example\|KEY\|key\)' ; then
+            echo "::error::NVIDIA API key material found in the tree. Revoke it at build.nvidia.com and remove it."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Audit (high and critical fail the build)
+        run: npm audit --audit-level=high
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: nim-proxy:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
