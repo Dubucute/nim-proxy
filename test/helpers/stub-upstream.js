@@ -19,6 +19,7 @@ const MODES = {
   STREAM_TRUNCATED: 'stream-truncated',
   STREAM_STALL: 'stream-stall',
   STREAM_USAGE: 'stream-usage',
+  STREAM_REASONING_ONLY: 'stream-reasoning-only',
   UNAUTHORIZED: '401',
   BAD_REQUEST_TEXT: '400-text-plain-json',
   MODEL_RETIRED: '410-problem-json',
@@ -148,6 +149,24 @@ function startStub({ idleMs = 60000 } = {}) {
           res.writeHead(200, { 'content-type': 'text/event-stream' });
           res.write('data: ' + JSON.stringify({ id: 'gen-stall', choices: [{ index: 0, delta: { content: 'first' } }] }) + '\n\n');
           // then nothing at all — the idle timer must fire
+          return;
+        }
+
+        if (state.mode === MODES.STREAM_REASONING_ONLY) {
+          // Reasoning model that never reaches content: budget exhausted mid-thought.
+          res.writeHead(200, { 'content-type': 'text/event-stream' });
+          for (const piece of ['Let me think', ' about this', ' carefully']) {
+            res.write('data: ' + JSON.stringify({
+              id: 'gen-r', object: 'chat.completion.chunk', model: 'x',
+              choices: [{ index: 0, delta: { reasoning_content: piece }, finish_reason: null }],
+            }) + '\n\n');
+          }
+          res.write('data: ' + JSON.stringify({
+            id: 'gen-r', object: 'chat.completion.chunk', model: 'x',
+            choices: [{ index: 0, delta: {}, finish_reason: 'length' }],
+          }) + '\n\n');
+          res.write('data: [DONE]\n\n');
+          res.end();
           return;
         }
 

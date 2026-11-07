@@ -95,6 +95,8 @@ function relaySseStream(source, res, opts = {}) {
     let usage = null;
     let lastByteAt = Date.now();
     let stallTimer = null;
+    let sawContent = false;
+    let reasoningChars = 0;
 
     // Backpressure: if the client is slower than NVIDIA, pause the upstream
     // instead of buffering an ever-growing queue in proxy memory.
@@ -110,7 +112,7 @@ function relaySseStream(source, res, opts = {}) {
       if (finished) return;
       finished = true;
       if (stallTimer) clearTimeout(stallTimer);
-      const stats = { outcome, events, usage, error };
+      const stats = { outcome, events, usage, error, sawContent, reasoningChars };
       if (!res.writableEnded && res.writable) {
         if (error) res.write(sseErrorFrame(errorPayloadFor(outcome, error)));
         if (!doneSeen && !error) {
@@ -176,6 +178,14 @@ function relaySseStream(source, res, opts = {}) {
         if (json.usage && (!json.choices || json.choices.length === 0 || !json.choices[0]?.delta?.content)) {
           usage = json.usage;
           if (typeof onUsage === 'function') onUsage(json.usage);
+        }
+        // Reasoning models (e.g. meta/muse-glimmer-30b) stream
+        // reasoning_content first and may never reach content at all, which a
+        // client renders as a blank answer. Track it so the caller can be told.
+        const delta = json?.choices?.[0]?.delta;
+        if (delta) {
+          if (typeof delta.content === 'string' && delta.content.length > 0) sawContent = true;
+          if (typeof delta.reasoning_content === 'string') reasoningChars += delta.reasoning_content.length;
         }
         for (const field of stripFields) {
           if (json && typeof json === 'object' && json[field] !== undefined) delete json[field];

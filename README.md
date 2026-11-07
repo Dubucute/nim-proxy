@@ -238,6 +238,28 @@ Legacy text completions, for autocomplete/FIM clients. `prompt` becomes a single
 message, `max_tokens` defaults to 256 and `temperature` to 0.2, and the chat response
 is mapped back to `text_completion` shape. Streaming works here too.
 
+### Reasoning models (`reasoning_content`)
+
+Some catalogue models think before they answer and put that thinking in
+`reasoning_content` rather than `content` — measured against `meta/muse-glimmer-30b`:
+
+| `max_tokens` | reasoning streamed | `content` | `finish_reason` |
+|---|---|---|---|
+| 60 | 278 chars | `""` | `length` |
+| 600 | 673 chars | `"hello world"` | `stop` |
+| unset → proxy default | 752 chars | `"hello world"` | `stop` |
+
+The proxy relays both fields untouched, so an SDK that only renders `delta.content`
+shows nothing while the model thinks — and if the budget runs out mid-thought, a
+perfectly `200 OK` response arrives with an empty answer. That is a property of the
+model, not a bug to work around, so:
+
+- **give reasoning models room** — a few hundred tokens minimum, not 50
+- the request log records `outcome: reasoning_only` and a warning naming the burnt
+  `max_tokens`, so a blank answer is never silent
+- expect the first *answer* token late (≈13s above); the first *reasoning* token
+  arrives in ~1s, which is what a naive TTFT measurement actually sees
+
 
 ### `GET /v1/models/ranked`
 

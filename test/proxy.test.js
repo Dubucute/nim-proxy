@@ -412,6 +412,40 @@ test('debug headers expose proxy internals on request, without secrets', async (
   } finally { await ctx.close(); }
 });
 
+test('a stream that only produced reasoning is flagged, not reported as a normal 200', async () => {
+  const ctx = await withProxy();
+  try {
+    // Real case: meta/muse-glimmer-30b streams reasoning_content first; with a
+    // small max_tokens it finishes 'length' having emitted no content at all.
+    ctx.stub.setMode(MODES.STREAM_REASONING_ONLY);
+    const { text } = await ctx.stream('/v1/chat/completions', { ...CHAT, stream: true, max_tokens: 40 });
+    assert.ok(text.includes('reasoning_content'), 'reasoning is relayed to the client');
+    assert.ok(text.includes('data: [DONE]'));
+
+    const logs = await ctx.json('/api/logs');
+    const entry = logs.body.entries[0];
+    assert.equal(entry.outcome, 'reasoning_only');
+    assert.match(entry.error, /reasoning, no answer content/);
+  } finally { await ctx.close(); }
+});
+
+test('non-streaming reasoning-only responses are still valid and relay reasoning_content', async () => {
+  const ctx = await withProxy();
+  try {
+    const { toChatCompletion } = require('../src/translate');
+    const out = toChatCompletion({
+      choices: [{
+        index: 0,
+        message: { role: 'assistant', content: null, reasoning_content: 'thought about it' },
+        finish_reason: 'length',
+      }],
+    }, 'meta/muse-glimmer-30b');
+    assert.equal(out.choices[0].message.content, null);
+    assert.equal(out.choices[0].message.reasoning_content, 'thought about it');
+    assert.equal(out.choices[0].finish_reason, 'length');
+  } finally { await ctx.close(); }
+});
+
 test('streaming transcript is valid SSE with one terminator', async () => {
   const ctx = await withProxy();
   try {

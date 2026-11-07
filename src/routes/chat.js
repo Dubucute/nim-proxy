@@ -102,6 +102,10 @@ async function runCompletion(req, res, deps, { body, shape }) {
     abort.settle();
     const usage = stats.usage || {};
     const failed = stats.outcome !== 'done' && stats.outcome !== 'aborted';
+    // A clean 200 whose only tokens were reasoning is a blank answer to every
+    // ordinary OpenAI client. Nothing throwable happened, so this is a warning
+    // rather than an error — but it must be visible.
+    const reasoningOnly = !failed && !stats.sawContent && stats.reasoningChars > 0;
     record(requestLog, {
       ...logBase,
       status: stats.outcome === 'aborted' ? 499 : failed ? 502 : 200,
@@ -109,12 +113,20 @@ async function runCompletion(req, res, deps, { body, shape }) {
       completionTokens: usage.completion_tokens || 0,
       totalTokens: usage.total_tokens || (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
       keyIndex: meta.keyIndex, retries: (meta.attempt || 1) - 1,
-      outcome: stats.outcome, events: stats.events,
-      error: stats.error ? stats.error.message : (stats.outcome === 'truncated' ? 'upstream ended without [DONE]' : null),
+      outcome: failed ? stats.outcome : reasoningOnly ? 'reasoning_only' : stats.outcome,
+      events: stats.events,
+      error: stats.error ? stats.error.message
+        : (stats.outcome === 'truncated' ? 'upstream ended without [DONE]'
+          : reasoningOnly ? `${stats.reasoningChars} chars of reasoning, no answer content — raise max_tokens` : null),
       startedAt,
     });
-    if (failed) logger.warn(`[${req.id}] ! stream ${stats.outcome} after ${fmtDuration(Date.now() - startedAt)}: ${stats.error?.message || 'truncated'}`);
-    else logger.info(`[${req.id}] ← stream ${stats.outcome} | ${stats.events} events | ${fmtDuration(Date.now() - startedAt)}`);
+    if (reasoningOnly) {
+      logger.warn(`[${req.id}] ! stream returned reasoning only (${stats.reasoningChars} chars) — max_tokens=${nimRequest.max_tokens} was exhausted before any answer; this model reasons before it answers`);
+    } else if (failed) {
+      logger.warn(`[${req.id}] ! stream ${stats.outcome} after ${fmtDuration(Date.now() - startedAt)}: ${stats.error?.message || 'truncated'}`);
+    } else {
+      logger.info(`[${req.id}] ← stream ${stats.outcome} | ${stats.events} events | ${fmtDuration(Date.now() - startedAt)}`);
+    }
     return;
   }
 
@@ -146,6 +158,13 @@ async function runCompletion(req, res, deps, { body, shape }) {
     keyIndex: meta.keyIndex, retries: (meta.attempt || 1) - 1,
     outcome: 'ok', startedAt,
   });
+  // Same blank-answer trap as the streaming path: a reasoning model can spend
+  // the whole budget thinking and return finish_reason "length" with no content.
+  const choice = payload.choices?.[0];
+  if (choice && choice.finish_reason === 'length' && !choice.message?.content
+    && (choice.message?.reasoning_content?.length || 0) > 0) {
+    logger.warn(`[${req.id}] ! response is reasoning only (finish_reason=length) — max_tokens=${nimRequest.max_tokens} was exhausted before any answer`);
+  }
   logger.info(`[${req.id}] ← ${payload.model} | ${payload.usage.total_tokens} tokens | ${fmtDuration(Date.now() - startedAt)}${(meta.attempt || 1) > 1 ? ` | after ${meta.attempt - 1} retr${meta.attempt === 2 ? 'y' : 'ies'}` : ''}`);
 
   abort.settle();
