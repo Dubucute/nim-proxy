@@ -32,6 +32,43 @@ class ProxyError extends Error {
   }
 }
 
+// NVIDIA's gateway answers some errors as JSON wrapped in `text/plain`, so a
+// string body is not automatically a plain message. Try to unwrap it before
+// falling back to the raw text, otherwise the client sees a JSON blob nested
+// inside an OpenAI error object.
+function extractUpstreamMessage(data) {
+  if (data === null || data === undefined) return null;
+  if (typeof data === 'string') {
+    const trimmed = data.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        const inner = parsed?.error?.message || parsed?.detail || parsed?.title || parsed?.message;
+        if (inner) return String(inner);
+      } catch { /* not JSON after all: fall through to the raw text */ }
+    }
+    if (!trimmed) return null;
+    return trimmed.length > 500 ? `${trimmed.slice(0, 500)}…` : trimmed;
+  }
+  const msg = data?.error?.message || data?.detail || data?.title || data?.message;
+  return msg ? String(msg) : null;
+}
+
+/** Find the original upstream response, following ProxyError cause chains. */
+function upstreamResponse(err, depth = 0) {
+  if (!err || depth > 5) return null;
+  if (err.response) return err.response;
+  return upstreamResponse(err.cause, depth + 1);
+}
+
+/** True when the upstream simply has no route for this path (as opposed to rejecting the request). */
+function isMissingRoute(err) {
+  const response = upstreamResponse(err);
+  if (response?.status !== 404) return false;
+  const body = extractUpstreamMessage(response.data);
+  return !body || /page not found|not found|404/i.test(body);
+}
+
 // NVIDIA -> OpenAI error-type mapping. Status comes from upstream when present
 // so clients can retry correctly (429/503 are retryable, 400 is not).
 function fromUpstream(err) {
@@ -39,8 +76,7 @@ function fromUpstream(err) {
   const data = err?.response?.data;
   const retryAfter = err?.response?.headers?.['retry-after'];
 
-  const upstreamMessage = typeof data === 'string' ? data
-    : data?.error?.message || data?.detail || data?.title || data?.message;
+  const upstreamMessage = extractUpstreamMessage(data);
 
   if (err?.code === 'ECONNABORTED' || err?.name === 'AbortError' && /timeout/i.test(err.message || '')) {
     return new ProxyError(`Upstream request timed out: ${err.message}`, { status: 504, type: 'server_timeout', cause: err });
@@ -60,6 +96,14 @@ function fromUpstream(err) {
       status, type: 'invalid_request_error', cause: err,
     });
   }
+  // 410 Gone: NVIDIA retired the model. Observed as RFC 7807 problem+json with
+  // a `detail` explaining the end-of-life date, e.g. meta/llama-3.1-8b-instruct.
+  if (status === 410) {
+    const detail = upstreamMessage || 'The requested model has been retired by NVIDIA.';
+    return new ProxyError(`${detail} Pick a current model from /v1/models.`, {
+      status: 410, type: 'model_unavailable', cause: err,
+    });
+  }
   if (status === 429) {
     return new ProxyError(upstreamMessage || 'NVIDIA NIM rate limit reached for the configured keys', {
       status: 429, type: 'rate_limit_error', cause: err,
@@ -69,7 +113,13 @@ function fromUpstream(err) {
   if (status && status >= 500) {
     return new ProxyError(upstreamMessage || `NVIDIA NIM returned ${status}`, { status: 502, type: 'upstream_error', cause: err });
   }
-  return new ProxyError(err?.message || 'Unknown upstream error', { status: 502, type: 'upstream_error', cause: err });
+  // Anything else: prefer what NVIDIA said over axios's generic
+  // "Request failed with status code N", which tells a caller nothing.
+  return new ProxyError(upstreamMessage || err?.message || 'Unknown upstream error', {
+    status: status && status >= 400 && status < 500 ? status : 502,
+    type: 'upstream_error',
+    cause: err,
+  });
 }
 
 /** True when the error is a retryable upstream condition. */
@@ -97,4 +147,4 @@ function errorBody(err, reqId) {
   return { error: { ...base, request_id: reqId } };
 }
 
-module.exports = { ProxyError, fromUpstream, isRetryable, isRateLimitError, errorBody };
+module.exports = { ProxyError, fromUpstream, isRetryable, isRateLimitError, errorBody, extractUpstreamMessage, isMissingRoute, upstreamResponse };

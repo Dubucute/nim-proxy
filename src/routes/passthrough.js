@@ -15,7 +15,7 @@
 
 const express = require('express');
 const { stripProxyOnlyFields, resolveCallerKey } = require('../translate');
-const { ProxyError } = require('../errors');
+const { ProxyError, isMissingRoute } = require('../errors');
 const { clientIp } = require('../middleware');
 const { fmtDuration } = require('../request-log');
 
@@ -31,6 +31,35 @@ const ENDPOINTS = {
 
 function isMultipart(req) {
   return String(req.headers['content-type'] || '').includes('multipart/form-data');
+}
+
+// NVIDIA's hosted gateway (integrate.api.nvidia.com) has no speech routes at
+// all: /v1/audio/* answers `404 page not found`. Relaying that verbatim tells
+// a caller nothing, so translate it into what actually has to change. The
+// Speech NIMs are separate containers that do expose an OpenAI-compatible
+// /v1/audio/transcriptions, so pointing NIM_API_BASE at one makes this work
+// unchanged.
+const AUDIO_HINT = {
+  '/audio/transcriptions': 'Nemotron Transcribe / Parakeet / Canary / Whisper Speech NIM',
+  '/audio/translations': 'Canary / NMT Speech NIM',
+  '/audio/speech': 'Nemotron TTS Speech NIM',
+};
+
+function explainMissingRoute(err, suffix, config) {
+  if (!isMissingRoute(err)) return null;
+  const hint = AUDIO_HINT[suffix];
+  if (!hint) {
+    return new ProxyError(
+      `${config.nimApiBase} does not implement ${suffix}.`,
+      { status: 501, type: 'upstream_unsupported_endpoint', cause: err },
+    );
+  }
+  return new ProxyError(
+    `${config.nimApiBase} does not implement ${suffix}. NVIDIA's hosted gateway has no speech endpoints and lists no ASR/TTS models; ` +
+    `speech runs as a self-hosted ${hint} (OpenAI-compatible on port 9000). ` +
+    'Point NIM_API_BASE at such a deployment, or transcribe on the client and send text to /v1/chat/completions.',
+    { status: 501, type: 'upstream_unsupported_endpoint', cause: err },
+  );
 }
 
 function createPassthroughRouter(deps) {
@@ -116,14 +145,15 @@ function createPassthroughRouter(deps) {
         logger.info(`[${req.id}] ← ${suffix} | ${fmtDuration(duration)}${multipart ? ' | multipart' : ''}`);
         return undefined;
       } catch (err) {
-        const status = err instanceof ProxyError ? err.status : 500;
+        const outgoing = explainMissingRoute(err, suffix, config) || err;
+        const status = outgoing instanceof ProxyError ? outgoing.status : 500;
         requestLog.add({
           reqId: req.id, method: req.method, path: req.path, model: req.body?.model,
           status, duration: Date.now() - startedAt, durationFmt: fmtDuration(Date.now() - startedAt),
-          endpoint: suffix.replace('/', ''), outcome: 'error', error: err.message,
+          endpoint: suffix.replace('/', ''), outcome: 'error', error: outgoing.message,
           clientIp: clientIp(req),
         });
-        return next(err);
+        return next(outgoing);
       }
     };
 
@@ -135,4 +165,4 @@ function createPassthroughRouter(deps) {
   return router;
 }
 
-module.exports = { createPassthroughRouter, ENDPOINTS, isMultipart };
+module.exports = { createPassthroughRouter, ENDPOINTS, isMultipart, explainMissingRoute };

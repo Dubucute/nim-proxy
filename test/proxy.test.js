@@ -232,8 +232,53 @@ test('multipart uploads are relayed byte-for-byte with the original boundary', a
   } finally { await ctx.close(); }
 });
 
-test('non-JSON content types are rejected with 415 instead of a crash', async () => {
+test('a retired model surfaces NVIDIA\'s end-of-life detail as 410, not axios boilerplate', async () => {
   const ctx = await withProxy();
+  try {
+    ctx.stub.setMode(MODES.MODEL_RETIRED);
+    const { status, body } = await ctx.json('/v1/chat/completions', { method: 'POST', body: CHAT });
+    assert.equal(status, 410);
+    assert.equal(body.error.type, 'model_unavailable');
+    assert.match(body.error.message, /end of life/);
+    assert.match(body.error.message, /Pick a current model from \/v1\/models/);
+    assert.doesNotMatch(body.error.message, /^Request failed with status code/);
+  } finally { await ctx.close(); }
+});
+
+test('a speech endpoint the upstream does not implement reports 501 with guidance, not a bare 404', async () => {
+  const ctx = await withProxy();
+  try {
+    // The hosted gateway really does answer `404 page not found` for /v1/audio/*.
+    ctx.stub.setMissingRoutes(['/v1/audio/transcriptions']);
+    const form = new FormData();
+    form.append('file', new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/wav' }), 'clip.wav');
+    form.append('model', 'nvidia/parakeet-tdt-0.6b-v2');
+
+    const res = await ctx.request('/v1/audio/transcriptions', { method: 'POST', body: form, headers: {} });
+    const body = await res.json();
+
+    assert.equal(res.status, 501);
+    assert.equal(body.error.type, 'upstream_unsupported_endpoint');
+    assert.match(body.error.message, /does not implement \/audio\/transcriptions/);
+    assert.match(body.error.message, /self-hosted/, 'tells the caller what to do');
+    assert.doesNotMatch(body.error.message, /^404 page not found$/, 'not the raw upstream text');
+  } finally { await ctx.close(); }
+});
+
+test('a genuine upstream 400 is unwrapped even when it arrives as text/plain JSON', async () => {
+  const ctx = await withProxy();
+  try {
+    // The gateway answers `{"error":{...}}` with content-type text/plain, which
+    // used to be forwarded as a JSON blob nested inside the error message.
+    ctx.stub.setMode(MODES.BAD_REQUEST_TEXT);
+    const { status, body } = await ctx.json('/v1/chat/completions', { method: 'POST', body: CHAT });
+    assert.equal(status, 400);
+    assert.equal(body.error.message, 'model field is required');
+    assert.doesNotMatch(body.error.message, /^\{/, 'no nested JSON');
+  } finally { await ctx.close(); }
+});
+
+test('non-JSON content types are rejected with 415 instead of a crash', async () => {  const ctx = await withProxy();
   try {
     const { status, body } = await ctx.json('/v1/chat/completions', {
       method: 'POST', headers: { 'content-type': 'text/plain' }, body: 'hello',

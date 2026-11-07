@@ -90,7 +90,7 @@ def fetch_models():
     return entries
 
 def _default():
-    ids = ["nvidia/nemotron-3-nano-30b-a3b","openai/gpt-oss-20b","mistralai/mistral-small-4-119b-2603","meta/llama-3.1-8b-instruct","deepseek-ai/deepseek-v4-flash","nvidia/nemotron-3-ultra-550b-a55b"]
+    ids = ["nvidia/nemotron-3-nano-30b-a3b","openai/gpt-oss-20b","mistralai/mistral-small-4-119b-2603","meta/llama-3.2-90b-vision-instruct","deepseek-ai/deepseek-v4-flash","nvidia/nemotron-3-ultra-550b-a55b"]
     return [ModelEntry(i,i.split("/")[0]) for i in ids]
 
 def filter_models(es, pat):

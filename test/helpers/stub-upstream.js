@@ -20,6 +20,8 @@ const MODES = {
   STREAM_STALL: 'stream-stall',
   STREAM_USAGE: 'stream-usage',
   UNAUTHORIZED: '401',
+  BAD_REQUEST_TEXT: '400-text-plain-json',
+  MODEL_RETIRED: '410-problem-json',
 };
 
 function sse(res, frames) {
@@ -29,7 +31,7 @@ function sse(res, frames) {
 }
 
 function startStub({ idleMs = 60000 } = {}) {
-  const state = { mode: MODES.OK, requests: [], modelsCalls: 0, chatCalls: 0, delayMs: 0 };
+  const state = { mode: MODES.OK, requests: [], modelsCalls: 0, chatCalls: 0, delayMs: 0, missingRoutes: [] };
 
   const server = http.createServer((req, res) => {
     let chunks = [];
@@ -74,6 +76,21 @@ function startStub({ idleMs = 60000 } = {}) {
         if (state.mode === MODES.SERVER_ERROR) {
           res.writeHead(500, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ error: { message: 'server exploded' } }));
+          return;
+        }
+        if (state.mode === MODES.MODEL_RETIRED) {
+          // RFC 7807 shape, as returned when NVIDIA ends a model's life.
+          res.writeHead(410, { 'content-type': 'application/problem+json' });
+          res.end(JSON.stringify({
+            type: 'about:blank', title: 'Gone', status: 410,
+            detail: `The model '${parsed.model}' has reached its end of life on 2026-08-26T09:00:00Z and is no longer available.`,
+          }));
+          return;
+        }
+        if (state.mode === MODES.BAD_REQUEST_TEXT) {
+          // Exactly what the hosted gateway does: JSON body, text/plain type.
+          res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
+          res.end(JSON.stringify({ error: { message: 'model field is required', type: 'invalid_request_error', code: 'missing_required_field' } }));
           return;
         }
         if (state.mode === MODES.EMPTY_CHOICES) {
@@ -153,6 +170,14 @@ function startStub({ idleMs = 60000 } = {}) {
       }
 
       // Any other path: echo what actually reached us.
+      const missingRoute = state.missingRoutes.find((p) => req.url === p);
+      if (missingRoute) {
+        // Mirrors the hosted gateway: a plain-text Go-style 404, not JSON.
+        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end('404 page not found\n');
+        return;
+      }
+
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ object: 'stub', url: req.url, echoed: parsed, auth: req.headers.authorization || null }));
     });
@@ -167,6 +192,8 @@ function startStub({ idleMs = 60000 } = {}) {
         state,
         setMode(mode) { state.mode = mode; },
         setDelay(ms) { state.delayMs = ms; },
+        /** Make these paths answer `404 page not found`, like the hosted gateway. */
+        setMissingRoutes(paths) { state.missingRoutes = paths; },
         lastRequest() { return state.requests[state.requests.length - 1]; },
         requestsTo(url) { return state.requests.filter((r) => r.url === url); },
         reset() { state.requests.length = 0; state.modelsCalls = 0; state.chatCalls = 0; state.mode = MODES.OK; },

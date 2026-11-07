@@ -116,9 +116,9 @@ open http://localhost:3000/logs
 | `POST` | `/v1/embeddings` | Vector embeddings |
 | `POST` | `/v1/images/generations` | Image/video generation |
 | `POST` | `/v1/images/edits` | Image edits (multipart upload relayed as-is) |
-| `POST` | `/v1/audio/transcriptions` | Speech-to-text (multipart upload relayed as-is) |
-| `POST` | `/v1/audio/translations` | Audio translation (multipart upload relayed as-is) |
-| `POST` | `/v1/audio/speech` | Text-to-speech, streamed back |
+| `POST` | `/v1/audio/transcriptions` | Speech-to-text (multipart relayed as-is) — **501 on the hosted gateway**, see below |
+| `POST` | `/v1/audio/translations` | Audio translation (multipart relayed as-is) — **501 on the hosted gateway** |
+| `POST` | `/v1/audio/speech` | Text-to-speech, streamed back — **501 on the hosted gateway** |
 | `GET` | `/logs` | Request dashboard (last 100; `?limit=`) — disable with `DASHBOARD_ENABLED=false` |
 | `GET` | `/api/logs` | Same data as JSON, plus latency percentiles and key-pool status |
 
@@ -180,7 +180,7 @@ Lists every model NVIDIA reports, each annotated with:
   "total": 121,
   "data": [
     {
-      "id": "meta/llama-3.1-8b-instruct",
+      "id": "openai/gpt-oss-20b",
       "type": "chat",
       "capabilities": {
         "chat": true,
@@ -220,7 +220,7 @@ with a `400 invalid_request_error` **before** an upstream call is spent.
 **Request with custom key:**
 ```json
 {
-  "model": "meta/llama-3.1-8b-instruct",
+  "model": "openai/gpt-oss-20b",
   "messages": [{"role": "user", "content": "Hello!"}],
   "temperature": 0.7,
   "stream": false,
@@ -289,9 +289,52 @@ These are relayed to NVIDIA's API with minimal transformation: proxy-only fields
 
 The file endpoints (`/v1/images/edits`, `/v1/audio/transcriptions`,
 `/v1/audio/translations`) accept `multipart/form-data` and relay the upload byte-for-byte
-with the caller's own boundary header, so real audio/image uploads work — previously
-`express.json` swallowed the body and the handler sent `Content-Type: multipart/form-data`
-with an empty JSON object. `/v1/audio/speech` streams the returned audio back.
+with the caller's own boundary header, so real audio/image uploads reach the upstream
+intact — previously `express.json` swallowed the body and the handler sent
+`Content-Type: multipart/form-data` with an empty JSON object. `/v1/audio/speech` streams
+the returned audio back.
+
+### Voice / audio input — read this before expecting a transcript
+
+**Uploading audio works at the proxy layer and fails upstream, by design of NVIDIA's
+hosted gateway.** Verified against `integrate.api.nvidia.com` in November 2026:
+
+| Route | Hosted gateway |
+|---|---|
+| `POST /v1/chat/completions` | exists (400 `model field is required` without a body) |
+| `POST /v1/embeddings` | exists |
+| `POST /v1/images/generations` | exists |
+| `POST /v1/audio/transcriptions` | **`404 page not found`** |
+| `POST /v1/audio/translations` | **`404 page not found`** |
+| `POST /v1/audio/speech` | **`404 page not found`** |
+
+`GET /v1/models` is public and lists no ASR or TTS models — speech is not served there at
+all. So a voice upload through this proxy comes back as:
+
+```json
+{
+  "error": {
+    "type": "upstream_unsupported_endpoint",
+    "message": "https://integrate.api.nvidia.com/v1 does not implement /audio/transcriptions. NVIDIA's hosted gateway has no speech endpoints and lists no ASR/TTS models; speech runs as a self-hosted Nemotron Transcribe / Parakeet / Canary / Whisper Speech NIM (OpenAI-compatible on port 9000). Point NIM_API_BASE at such a deployment, or transcribe on the client and send text to /v1/chat/completions."
+  }
+}
+```
+
+with HTTP `501`. That is the proxy being honest: v1.0.0 failed the same way but reported
+`404 page not found` from upstream, which told you nothing about why.
+
+**To actually transcribe**, pick one:
+
+1. **Self-host a Speech NIM** — Parakeet, Canary, Whisper or Nemotron Transcribe runs as a
+   container exposing an OpenAI-compatible `/v1/audio/transcriptions` on port 9000
+   ([docs](https://docs.nvidia.com/nim/speech/latest/about/index.html)). Set
+   `NIM_API_BASE` to it and this proxy needs no code change: the multipart relay, key
+   handling and error mapping all apply unchanged.
+2. **Transcribe on the client** — Whisper locally, the browser's `SpeechRecognition`, or OS
+   dictation — then send the text to `/v1/chat/completions`.
+
+There is no configuration of this proxy that makes voice work against the hosted gateway,
+because the route does not exist upstream.
 
 **Embeddings example:**
 ```json
@@ -697,7 +740,7 @@ curl "$PROXY/v1/models/ranked?type=embedding"
 curl $PROXY/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "meta/llama-3.1-8b-instruct",
+    "model": "openai/gpt-oss-20b",
     "messages": [{"role": "user", "content": "Hello!"}],
     "temperature": 0.7
   }'
@@ -705,7 +748,7 @@ curl $PROXY/v1/chat/completions \
 
 ```python
 response = client.chat.completions.create(
-    model="meta/llama-3.1-8b-instruct",
+    model="openai/gpt-oss-20b",
     messages=[{"role": "user", "content": "Hello!"}],
     temperature=0.7
 )
@@ -776,7 +819,7 @@ print(response.choices[0].message.content)
 curl $PROXY/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "meta/llama-3.1-8b-instruct",
+    "model": "openai/gpt-oss-20b",
     "messages": [
       {"role": "system", "content": "You are a helpful assistant."},
       {"role": "user", "content": "What is the capital of France?"},
@@ -791,7 +834,7 @@ curl $PROXY/v1/chat/completions \
 curl $PROXY/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "meta/llama-3.1-8b-instruct",
+    "model": "openai/gpt-oss-20b",
     "messages": [{"role": "user", "content": "What is the weather in London?"}],
     "tools": [{
       "type": "function",
