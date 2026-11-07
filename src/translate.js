@@ -22,6 +22,11 @@ const FORWARD_PARAMS = [
   'seed', 'logit_bias', 'response_format', 'logprobs', 'top_logprobs',
   'tools', 'tool_choice', 'parallel_tool_calls',
   'reasoning', 'reasoning_effort', 'extra_body', 'user',
+  // Audio I/O on omni models: input_audio content parts ride inside `messages`;
+  // these two request fields complete the OpenAI audio shape. The hosted gateway
+  // currently ignores audio *output* requests, but forwarding them keeps the
+  // proxy honest if that ever changes.
+  'modalities', 'audio',
 ];
 
 // Caller-side control fields: meaningful to the proxy, never valid upstream.

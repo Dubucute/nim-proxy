@@ -141,9 +141,9 @@ open http://localhost:3000/logs
 | `POST` | `/v1/embeddings` | Vector embeddings |
 | `POST` | `/v1/images/generations` | Image/video generation |
 | `POST` | `/v1/images/edits` | Image edits (multipart upload relayed as-is) |
-| `POST` | `/v1/audio/transcriptions` | Speech-to-text (multipart relayed as-is) — **501 on the hosted gateway**, see below |
+| `POST` | `/v1/audio/transcriptions` | Speech-to-text (multipart relayed as-is) — **501 on the hosted gateway**; use inline `input_audio` in chat instead, see below |
 | `POST` | `/v1/audio/translations` | Audio translation (multipart relayed as-is) — **501 on the hosted gateway** |
-| `POST` | `/v1/audio/speech` | Text-to-speech, streamed back — **501 on the hosted gateway** |
+| `POST` | `/v1/audio/speech` | Text-to-speech — **501; not served by the hosted gateway at all** |
 | `GET` | `/logs` | Request dashboard (last 100; `?limit=`) — disable with `DASHBOARD_ENABLED=false` |
 | `GET` | `/api/logs` | Same data as JSON, plus latency percentiles and key-pool status |
 
@@ -414,47 +414,50 @@ intact — previously `express.json` swallowed the body and the handler sent
 `Content-Type: multipart/form-data` with an empty JSON object. `/v1/audio/speech` streams
 the returned audio back.
 
-### Voice / audio input — read this before expecting a transcript
+### Voice / audio — input works inline, output does not exist
 
-**Uploading audio works at the proxy layer and fails upstream, by design of NVIDIA's
-hosted gateway.** Verified against `integrate.api.nvidia.com` in November 2026:
+Two separate facts, both verified against `integrate.api.nvidia.com` in November 2026:
 
-| Route | Hosted gateway |
-|---|---|
-| `POST /v1/chat/completions` | exists (400 `model field is required` without a body) |
-| `POST /v1/embeddings` | exists |
-| `POST /v1/images/generations` | exists |
-| `POST /v1/audio/transcriptions` | **`404 page not found`** |
-| `POST /v1/audio/translations` | **`404 page not found`** |
-| `POST /v1/audio/speech` | **`404 page not found`** |
+**1. The dedicated speech routes are absent.** `POST /v1/audio/transcriptions`,
+`/v1/audio/translations` and `/v1/audio/speech` all answer `404 page not found`, so the
+proxy returns a `501 upstream_unsupported_endpoint` explaining the options rather than
+relaying the bare 404.
 
-`GET /v1/models` is public and lists no ASR or TTS models — speech is not served there at
-all. So a voice upload through this proxy comes back as:
+**2. Audio *input* still works — inline in chat.** Omni models accept OpenAI
+`input_audio` content parts inside `/v1/chat/completions`. Confirmed live:
+`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` transcribed a spoken WAV exactly
+("The secret code is banana forty two.") in ~2s, non-streaming and streaming, through this
+proxy with no code change — `messages` (including `input_audio` parts) and the
+`modalities`/`audio` fields are forwarded untouched.
 
-```json
-{
-  "error": {
-    "type": "upstream_unsupported_endpoint",
-    "message": "https://integrate.api.nvidia.com/v1 does not implement /audio/transcriptions. NVIDIA's hosted gateway has no speech endpoints and lists no ASR/TTS models; speech runs as a self-hosted Nemotron Transcribe / Parakeet / Canary / Whisper Speech NIM (OpenAI-compatible on port 9000). Point NIM_API_BASE at such a deployment, or transcribe on the client and send text to /v1/chat/completions."
-  }
-}
+```python
+import base64
+wav = base64.b64encode(open("clip.wav", "rb").read()).decode()
+r = client.chat.completions.create(
+    model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    messages=[{"role": "user", "content": [
+        {"type": "text", "text": "Transcribe this audio exactly."},
+        {"type": "input_audio", "input_audio": {"data": wav, "format": "wav"}},
+    ]}],
+    max_tokens=600,   # reasoning model: leave room to think before it answers
+)
+print(r.choices[0].message.content)
 ```
 
-with HTTP `501`. That is the proxy being honest: v1.0.0 failed the same way but reported
-`404 page not found` from upstream, which told you nothing about why.
+`/v1/models` flags these models with `capabilities.audioInput: true`, and
+`GET /v1/models?tag=audioInput` lists them. `tools/probe-catalogue.js --audio` tests any
+model for audio-input support.
 
-**To actually transcribe**, pick one:
+**Audio *output* (TTS) is not served.** A request with `modalities: ["text","audio"]` comes
+back `200` but **text-only** — the gateway silently drops the audio request, there is no
+`message.audio`. The proxy forwards those fields in case that ever changes, but today you
+cannot get speech out of the hosted gateway.
 
-1. **Self-host a Speech NIM** — Parakeet, Canary, Whisper or Nemotron Transcribe runs as a
-   container exposing an OpenAI-compatible `/v1/audio/transcriptions` on port 9000
-   ([docs](https://docs.nvidia.com/nim/speech/latest/about/index.html)). Set
-   `NIM_API_BASE` to it and this proxy needs no code change: the multipart relay, key
-   handling and error mapping all apply unchanged.
-2. **Transcribe on the client** — Whisper locally, the browser's `SpeechRecognition`, or OS
-   dictation — then send the text to `/v1/chat/completions`.
-
-There is no configuration of this proxy that makes voice work against the hosted gateway,
-because the route does not exist upstream.
+**So, to transcribe:** send audio inline to an omni model (above), or self-host a Speech NIM
+(Parakeet / Canary / Whisper / Nemotron Transcribe, OpenAI-compatible on port 9000 —
+[docs](https://docs.nvidia.com/nim/speech/latest/about/index.html)) and point `NIM_API_BASE`
+at it; the multipart relay then works unchanged. **To synthesize speech:** you must
+self-host a TTS NIM; there is no hosted route.
 
 **Embeddings example:**
 ```json
@@ -552,15 +555,17 @@ you the truth:
 ```bash
 node tools/probe-catalogue.js                    # all chat-classified models
 node tools/probe-catalogue.js --vision           # also test image support (data URI)
+node tools/probe-catalogue.js --audio            # also test audio input (input_audio WAV)
 node tools/probe-catalogue.js --filter nemotron  # just one family
 node tools/probe-catalogue.js --all              # include embeddings/images/etc.
 ```
 
 Each model gets a verdict — `ok`, `retired` (410 + EOL date), `not_entitled` (listed but
 "Function … Not found for account"), `unknown`, `forbidden`, `rate_limited` — plus latency,
-and with `--vision` a tested `vision: true/false`. Results land in
-`tools/catalogue-probe.json` (git-ignored). Reasoning-only answers are flagged rather than
-counted as failures, since they mean "raise max_tokens", not "broken model".
+and with `--vision` / `--audio` a tested `vision` / `audio` true-or-false. Results land in
+`tools/catalogue-probe.json` (git-ignored). `--merge` folds a retry into the existing report
+and keeps modality results it did not re-test. Reasoning-only answers are flagged rather
+than counted as failures, since they mean "raise max_tokens", not "broken model".
 
 ---
 
@@ -1071,11 +1076,11 @@ curl "$PROXY/v1/models?type=image"
 | `GET /v1/models` | List all models | Finding model IDs |
 | `GET /v1/models/:id` | One model | SDK `models.retrieve()` calls |
 | `GET /v1/models/ranked` | Models sorted by benchmark score | Choosing the best model |
-| `POST /v1/chat/completions` | Text generation, vision, tools | Chat, coding, analysis |
+| `POST /v1/chat/completions` | Text, vision, tools, inline audio input | Chat, coding, analysis, transcription via omni models |
 | `POST /v1/completions` | Legacy/FIM text completion | Autocomplete-style clients |
 | `POST /v1/embeddings` | Vector embeddings | Search, RAG, clustering |
 | `POST /v1/images/generations` | Image/video generation | Visual content creation |
-| `POST /v1/audio/transcriptions` | Speech-to-text (multipart) | Whisper-like workflows |
+| `POST /v1/audio/transcriptions` | 501 on hosted gateway | Use inline `input_audio` in chat instead |
 | `GET /health` | Status, key pool, limits, benchmarks | Monitoring |
 | `GET /logs` | Live request dashboard | Debugging what actually happened |
 

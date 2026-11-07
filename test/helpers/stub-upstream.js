@@ -59,6 +59,7 @@ function startStub({ idleMs = 60000 } = {}) {
             { id: 'meta/llama-3.1-8b-instruct', created: 1700000000, owned_by: 'nvidia' },
             { id: 'nvidia/nv-embedqa-e5-v5', created: 1700000000, owned_by: 'nvidia' },
             { id: 'microsoft/phi-4', created: 1700000000, owned_by: 'nvidia' },
+            { id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning', created: 1700000000, owned_by: 'nvidia' },
           ],
         }));
         return;

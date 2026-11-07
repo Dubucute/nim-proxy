@@ -33,6 +33,23 @@ const KNOWN_VISION_MODELS = [
   'z-ai/glm-5.3-flash',
 ];
 
+// Audio-input detection. The hosted gateway has no /v1/audio/* routes, but
+// `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` accepts OpenAI `input_audio`
+// content parts inside /v1/chat/completions (verified 2026-11-07: it transcribed
+// a spoken WAV exactly). Audio *output* is not served: requests with
+// modalities:["text","audio"] come back text-only.
+const AUDIO_INPUT_KEYWORDS = ['omni'];
+const KNOWN_AUDIO_INPUT_MODELS = [
+  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
+];
+
+/** True when the model accepts inline audio (input_audio parts) in chat. */
+function getAudioInputCapability(modelId) {
+  const low = modelId.toLowerCase();
+  if (KNOWN_AUDIO_INPUT_MODELS.some((m) => low === m || low.startsWith(`${m}/`))) return true;
+  return AUDIO_INPUT_KEYWORDS.some((kw) => low.includes(kw));
+}
+
 // Benchmark data cache
 let benchmarkCache = { data: null, lastFetched: 0 };
 const BENCHMARK_CACHE_TTL = 60 * 60 * 1000; // 1 hour
@@ -177,9 +194,11 @@ function getBenchmarkSummary(data) {
 module.exports = {
   loadBenchmarkData,
   getVisionCapability,
+  getAudioInputCapability,
   getDefaultMaxTokens,
   getRankedSort,
   getBenchmarkSummary,
   getModelType,
-  VISION_KEYWORDS
+  VISION_KEYWORDS,
+  KNOWN_AUDIO_INPUT_MODELS
 };

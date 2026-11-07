@@ -54,10 +54,16 @@ function explainMissingRoute(err, suffix, config) {
       { status: 501, type: 'upstream_unsupported_endpoint', cause: err },
     );
   }
+  // Audio *input* has a hosted workaround even though this route is absent:
+  // omni chat models accept inline input_audio parts. Audio *output* (TTS) does
+  // not — the gateway returns text-only even for modalities:["text","audio"].
+  const inlineAudio = suffix !== '/audio/speech'
+    ? ' For transcription you can instead send the audio inline as an input_audio content part to an audio-capable chat model (e.g. nvidia/nemotron-3-nano-omni-30b-a3b-reasoning) via /v1/chat/completions.'
+    : ' Text-to-speech is not served by the hosted gateway at all.';
   return new ProxyError(
-    `${config.nimApiBase} does not implement ${suffix}. NVIDIA's hosted gateway has no speech endpoints and lists no ASR/TTS models; ` +
+    `${config.nimApiBase} does not implement ${suffix}. NVIDIA's hosted gateway has no dedicated speech endpoints; ` +
     `speech runs as a self-hosted ${hint} (OpenAI-compatible on port 9000). ` +
-    'Point NIM_API_BASE at such a deployment, or transcribe on the client and send text to /v1/chat/completions.',
+    `Point NIM_API_BASE at such a deployment.${inlineAudio}`,
     { status: 501, type: 'upstream_unsupported_endpoint', cause: err },
   );
 }

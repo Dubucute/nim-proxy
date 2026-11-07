@@ -159,12 +159,12 @@ test('GET /v1/models lists, filters and annotates', async () => {
   try {
     const all = await ctx.json('/v1/models');
     assert.equal(all.status, 200);
-    assert.equal(all.body.data.length, 3);
-    assert.equal(all.body.total, 3, 'total must match data length');
+    assert.equal(all.body.data.length, 4);
+    assert.equal(all.body.total, 4, 'total must match data length');
     assert.equal(all.body.data.find((m) => m.id === 'nvidia/nv-embedqa-e5-v5').type, 'embedding');
 
     const chats = await ctx.json('/v1/models?type=chat');
-    assert.deepEqual(chats.body.data.map((m) => m.id), ['meta/llama-3.1-8b-instruct', 'microsoft/phi-4']);
+    assert.deepEqual(chats.body.data.map((m) => m.id), ['meta/llama-3.1-8b-instruct', 'microsoft/phi-4', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning']);
     assert.ok(chats.body.data[0].capabilities.chat);
 
     const limit = await ctx.json('/v1/models?limit=1');
@@ -426,7 +426,7 @@ test('GET /health?deep=true probes NVIDIA', async () => {
   try {
     const { body } = await ctx.json('/health?deep=true');
     assert.equal(body.deep.ok, true);
-    assert.equal(body.deep.models, 3);
+    assert.equal(body.deep.models, 4);
     assert.equal(ctx.stub.state.modelsCalls, 1);
   } finally { await ctx.close(); }
 });

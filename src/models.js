@@ -81,6 +81,9 @@ class ModelCatalog {
           safety: type === 'safety',
           toolCalling: type === 'chat',
           vision: shared.getVisionCapability(model.id),
+          // Inline audio in chat (input_audio parts), distinct from `audio`
+          // which marks models served by the (absent) /v1/audio/* endpoints.
+          audioInput: shared.getAudioInputCapability(model.id),
         },
       };
     });
@@ -130,6 +133,7 @@ function applyFilters(models, query, benchmarkRaw) {
   if (query.tag) {
     const tag = String(query.tag).toLowerCase();
     if (tag === 'vision') out = out.filter((m) => m.capabilities?.vision);
+    else if (tag === 'audioinput' || tag === 'audio-input') out = out.filter((m) => m.capabilities?.audioInput);
     else if (tag === 'toolcalling' || tag === 'tools') out = out.filter((m) => m.capabilities?.toolCalling);
     else if (['chat', 'embedding', 'image', 'audio', 'safety'].includes(tag)) out = out.filter((m) => m.type === tag);
     else {

@@ -17,6 +17,7 @@
 //   node tools/probe-catalogue.js --all           # every model in the catalogue
 //   node tools/probe-catalogue.js --filter nemotron --concurrency 4
 //   node tools/probe-catalogue.js --vision        # also probe image support (data URI)
+//   node tools/probe-catalogue.js --audio         # also probe audio input (input_audio WAV)
 //   node tools/probe-catalogue.js --filter gpt-oss --merge   # retry into existing report
 //
 // Writes tools/catalogue-probe.json (git-ignored) and prints a summary table.
@@ -35,11 +36,21 @@ const OUT = path.join(__dirname, 'catalogue-probe.json');
 // 1x1 red PNG — small enough to keep vision probes cheap.
 const TEST_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
+// Audio probe fixture: a short spoken clip saying "The secret code is banana
+// forty two." A 200 response is NOT proof a model heard the audio — the gateway
+// silently drops input_audio for non-audio models and they still answer the text
+// (or hallucinate). So we verify the transcription actually contains the secret.
+const AUDIO_FIXTURE = path.join(__dirname, 'fixtures', 'transcribe-me.wav');
+const TEST_AUDIO = fs.existsSync(AUDIO_FIXTURE) ? fs.readFileSync(AUDIO_FIXTURE).toString('base64') : null;
+const AUDIO_SECRET = /banana/i;
+const AUDIO_SECRET_NUM = /forty\s*[- ]?\s*two|\b42\b/i;
+
 function parseArgs(argv) {
-  const args = { all: false, vision: false, merge: false, concurrency: 3, filter: null, timeoutMs: 60000 };
+  const args = { all: false, vision: false, audio: false, merge: false, concurrency: 3, filter: null, timeoutMs: 60000 };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--all') args.all = true;
     else if (argv[i] === '--vision') args.vision = true;
+    else if (argv[i] === '--audio') args.audio = true;
     else if (argv[i] === '--merge') args.merge = true;
     else if (argv[i] === '--filter') args.filter = argv[++i];
     else if (argv[i] === '--concurrency') args.concurrency = Math.max(1, Number(argv[++i]) || 3);
@@ -116,6 +127,35 @@ async function probeModel(model, args) {
     entry.vision = v.verdict === 'ok' ? true : (v.verdict === 'forbidden' || unsupported) ? false : `inconclusive:${v.verdict}`;
     if (typeof entry.vision === 'string') entry.visionNote = v.note;
   }
+
+  if (args.audio && entry.verdict === 'ok') {
+    if (!TEST_AUDIO) {
+      entry.audio = 'inconclusive:no-fixture';
+      entry.audioNote = 'tools/fixtures/transcribe-me.wav is missing';
+    } else {
+      const audioResult = await call(model.id, [{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Transcribe the audio exactly, word for word.' },
+          { type: 'input_audio', input_audio: { data: TEST_AUDIO, format: 'wav' } },
+        ],
+      }], 600, args.timeoutMs);
+      const a = classify(audioResult);
+      const unsupported = /not a multimodal model|multimodal processing is not enabled|does not support (?:audio|sound|multimodal)|audio (?:input )?not supported/i.test(a.note || '');
+      if (a.verdict === 'ok') {
+        // A 200 alone is not proof of hearing: the gateway drops input_audio for
+        // non-audio models and they still answer. Confirm the secret is actually
+        // transcribed (in content or reasoning) before calling it audio-capable.
+        const msg = audioResult.json?.choices?.[0]?.message || {};
+        const heard = `${msg.content || ''} ${msg.reasoning_content || ''}`;
+        entry.audio = AUDIO_SECRET.test(heard) && AUDIO_SECRET_NUM.test(heard);
+        if (!entry.audio) entry.audioNote = 'returned 200 but did not transcribe the audio (gateway likely dropped it)';
+      } else {
+        entry.audio = (a.verdict === 'forbidden' || unsupported) ? false : `inconclusive:${a.verdict}`;
+        if (typeof entry.audio === 'string') entry.audioNote = a.note;
+      }
+    }
+  }
   return entry;
 }
 
@@ -137,7 +177,7 @@ async function main() {
   if (!args.all) targets = targets.filter((m) => m.type === 'chat');
   if (args.filter) targets = targets.filter((m) => m.id.toLowerCase().includes(args.filter.toLowerCase()));
 
-  console.log(`Probing ${targets.length} of ${catalogue.length} models (concurrency ${args.concurrency}${args.vision ? ', vision on' : ''})...\n`);
+  console.log(`Probing ${targets.length} of ${catalogue.length} models (concurrency ${args.concurrency}${args.vision ? ', vision on' : ''}${args.audio ? ', audio on' : ''})...\n`);
 
   const results = [];
   let cursor = 0;
@@ -147,19 +187,21 @@ async function main() {
       const entry = await probeModel(model, args);
       results.push(entry);
       const mark = entry.verdict === 'ok' ? 'OK ' : entry.verdict.toUpperCase().slice(0, 3);
-      console.log(`[${mark}] ${entry.id.padEnd(52)} ${entry.verdict.padEnd(13)} ${entry.note || ''}${entry.vision !== undefined ? `  vision=${entry.vision}` : ''}`);
+      const mods = `${entry.vision !== undefined ? `  vision=${entry.vision}` : ''}${entry.audio !== undefined ? `  audio=${entry.audio}` : ''}`;
+      console.log(`[${mark}] ${entry.id.padEnd(52)} ${entry.verdict.padEnd(13)} ${entry.note || ''}${mods}`);
     }
   }
   await Promise.all(Array.from({ length: Math.min(args.concurrency, targets.length) }, worker));
 
-  // --merge folds this run into the existing report by model id (new results win),
-  // so a --filter retry doesn't clobber a previous full sweep.
+  // --merge folds this run into the existing report by model id. New fields win,
+  // but modality results (vision/audio) from a prior run are preserved when this
+  // run did not re-test them, so `--audio --merge` keeps earlier vision data.
   let merged = results;
   if (args.merge && fs.existsSync(OUT)) {
     try {
       const prior = JSON.parse(fs.readFileSync(OUT, 'utf8')).results || [];
       const byId = new Map(prior.map((r) => [r.id, r]));
-      for (const r of results) byId.set(r.id, r);
+      for (const r of results) byId.set(r.id, { ...(byId.get(r.id) || {}), ...r });
       merged = [...byId.values()];
     } catch { /* corrupt prior report: fall back to this run only */ }
   }
@@ -174,7 +216,8 @@ async function main() {
     totalCatalogue: catalogue.length,
     probed: merged.length,
     counts,
-    visionTested: args.vision,
+    visionTested: merged.some((r) => r.vision !== undefined),
+    audioTested: merged.some((r) => r.audio !== undefined),
     results: merged,
   };
   fs.writeFileSync(OUT, JSON.stringify(report, null, 2));
