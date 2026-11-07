@@ -544,6 +544,24 @@ telemetry), tokens/sec, code quality, KV-cache hit rate, instruction following a
 queue depth. Raw artifacts land in `benchmark_artifacts/` (git-ignored); the ranking table
 it prints is what `benchmark_data.json` records.
 
+### Which models can *your* key actually call?
+
+The catalogue is global; entitlements are per-account. One cheap request per model tells
+you the truth:
+
+```bash
+node tools/probe-catalogue.js                    # all chat-classified models
+node tools/probe-catalogue.js --vision           # also test image support (data URI)
+node tools/probe-catalogue.js --filter nemotron  # just one family
+node tools/probe-catalogue.js --all              # include embeddings/images/etc.
+```
+
+Each model gets a verdict — `ok`, `retired` (410 + EOL date), `not_entitled` (listed but
+"Function … Not found for account"), `unknown`, `forbidden`, `rate_limited` — plus latency,
+and with `--vision` a tested `vision: true/false`. Results land in
+`tools/catalogue-probe.json` (git-ignored). Reasoning-only answers are flagged rather than
+counted as failures, since they mean "raise max_tokens", not "broken model".
+
 ---
 
 ## 🧩 Architecture

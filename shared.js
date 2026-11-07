@@ -15,7 +15,22 @@ const BENCHMARK_PATH = path.join(__dirname, 'benchmark_data.json');
 // this from.
 const VISION_KEYWORDS = ['vision', 'vlm', 'vl', 'multimodal', 'fuyu', 'kosmos', 'neva', 'vila', 'nvclip', 'deplot'];
 const KNOWN_VISION_MODELS = [
-  'meta/muse-glimmer-30b', // tested 2026-11-07: image_url parts accepted via data URI
+  // Verified 2026-11-07 with tools/probe-catalogue.js --vision: the gateway
+  // accepted an image_url data URI and returned a completion. Names without a
+  // vision keyword would otherwise be misreported as text-only.
+  'deepseek-ai/deepseek-v4.1-flash',
+  'google/gemma-4-31b-it',
+  'meta/llama-3.2-90b-vision-instruct',
+  'meta/muse-glimmer-30b',
+  'minimaxai/minimax-m3.1-flash',
+  'mistralai/mistral-large-4-1t-a52b',
+  'nvidia/ising-calibration-1.5-31b',
+  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
+  'nvidia/nemotron-3.5-bolt-e4b',
+  'nvidia/nemotron-3.5-super-vl-120b-a12b',
+  'nvidia/nemotron-parse-2.0',
+  'stepfun-ai/step-5-preview',
+  'z-ai/glm-5.3-flash',
 ];
 
 // Benchmark data cache

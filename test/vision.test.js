@@ -128,9 +128,11 @@ test('hasImageContent detects multimodal payloads', () => {
   assert.ok(!hasImageContent([{ role: 'user', content: 'plain' }]));
 });
 
-test('glimmer is classified vision despite its name having no keyword', () => {
+test('verified vision models are classified even without a name keyword', () => {
   assert.equal(shared.getVisionCapability('meta/muse-glimmer-30b'), true);
+  assert.equal(shared.getVisionCapability('deepseek-ai/deepseek-v4.1-flash'), true);
   assert.equal(shared.getVisionCapability('microsoft/phi-4'), false);
+  assert.equal(shared.getVisionCapability('nvidia/nemotron-3-ultra-550b-a55b'), false);
 });
 
 test('the proxy inlines a remote image before calling upstream', async () => {

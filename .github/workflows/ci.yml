@@ -32,7 +32,7 @@ jobs:
         run: |
           node --check server.js
           node --check shared.js
-          for f in src/*.js src/routes/*.js; do node --check "$f"; done
+          for f in src/*.js src/routes/*.js tools/*.js; do node --check "$f"; done
 
       - name: Test
         run: npm run test:ci

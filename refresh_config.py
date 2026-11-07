@@ -76,6 +76,23 @@ def load_benchmark_data():
 # MODEL CAPABILITY ANNOTATIONS
 # ============================================================
 VISION_KEYWORDS = ['vision', 'vlm', 'vl', 'multimodal', 'fuyu', 'kosmos', 'neva', 'vila', 'nvclip', 'deplot']
+# Keep in sync with KNOWN_VISION_MODELS in shared.js. Verified with
+# tools/probe-catalogue.js --vision; name heuristics alone miss these.
+KNOWN_VISION_MODELS = {
+    'deepseek-ai/deepseek-v4.1-flash',
+    'google/gemma-4-31b-it',
+    'meta/llama-3.2-90b-vision-instruct',
+    'meta/muse-glimmer-30b',
+    'minimaxai/minimax-m3.1-flash',
+    'mistralai/mistral-large-4-1t-a52b',
+    'nvidia/ising-calibration-1.5-31b',
+    'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
+    'nvidia/nemotron-3.5-bolt-e4b',
+    'nvidia/nemotron-3.5-super-vl-120b-a12b',
+    'nvidia/nemotron-parse-2.0',
+    'stepfun-ai/step-5-preview',
+    'z-ai/glm-5.3-flash',
+}
 
 def get_tool_capability(model_id, failed_set=None):
     """Return True if model supports tool/function calling.
@@ -103,6 +120,8 @@ def is_embedding_model(model_id):
 
 def get_vision_capability(model_id):
     low = model_id.lower()
+    if low in KNOWN_VISION_MODELS or any(low.startswith(m + '/') for m in KNOWN_VISION_MODELS):
+        return True
     return any(kw in low for kw in VISION_KEYWORDS)
 
 def shorten_name(model_id):

@@ -15,3 +15,5 @@ benchmark_artifacts/
 tmp-verify/
 backup-origin.git/
 nim-proxy.tar.gz
+tools/catalogue-probe.json
+.vercel-schema.cache.json
