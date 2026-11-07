@@ -7,27 +7,32 @@ import pathlib
 import re
 import os
 
-PROXY_URL = 'https://dubu.alwaysdata.net'
+PROXY_URL = os.environ.get('NIM_PROXY_URL', 'https://dubu.alwaysdata.net')
 
 # NVIDIA API base (fetch full model list from source)
-NVIDIA_API_BASE = 'https://integrate.api.nvidia.com/v1'
+NVIDIA_API_BASE = os.environ.get('NIM_API_BASE', 'https://integrate.api.nvidia.com/v1')
 
-# Collect API keys from env vars, fall back to hardcoded keys (same as server.js)
+# API keys come from the environment only. They used to fall back to keys
+# hardcoded in this file, which meant real credentials sat in a public repo.
 def _get_nvidia_api_keys():
     keys = []
-    for k, v in os.environ.items():
-        if k.startswith('NIM_API_KEY') and v:
-            keys.append(v)
-    if not keys:
-        keys = [
-            'nvapi-REVOKED-KEY-REMOVED',
-            'nvapi-REVOKED-KEY-REMOVED'
-        ]
-    return keys
+    for name, value in os.environ.items():
+        if name.startswith(('NIM_API_KEY', 'NVIDIA_API_KEY')) and value and value.strip():
+            keys.append(value.strip())
+    return sorted(set(keys))
+
 
 _NVIDIA_API_KEYS = _get_nvidia_api_keys()
 
+
 def _get_nvidia_api_key():
+    if not _NVIDIA_API_KEYS:
+        sys.exit(
+            'NIM_API_KEY is not set.\n'
+            'Generate a free key at https://build.nvidia.com/ and either\n'
+            '  export NIM_API_KEY=nvapi-...        (then re-run this script), or\n'
+            '  put it in a .env file next to server.js and run this through the proxy.'
+        )
     return _NVIDIA_API_KEYS[0]
 
 # Default output path: Windows VS Code config path

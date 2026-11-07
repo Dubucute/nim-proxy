@@ -32,21 +32,26 @@ REPORT_FILE = ARTIFACTS_DIR / "openai_report.txt"
 ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── API keys ──
+# Environment only. Hardcoded fallback keys were removed: they put live
+# NVIDIA credentials into a public repository.
 def _collect_api_keys():
     keys = []
     for var in ["NVIDIA_API_KEY", "NIM_API_KEY", "NVIDIA_NIM_API_KEY"]:
         v = os.environ.get(var)
-        if v: keys.append(v); break
-    for s in ["_2","_3","_4","_5"]:
+        if v: keys.append(v.strip()); break
+    for s in ["_2","_3","_4","_5","_6","_7","_8"]:
         k = os.environ.get(f"NIM_API_KEY{s}") or os.environ.get(f"NVIDIA_API_KEY{s}")
-        if k: keys.append(k)
-    if not keys:
-        keys = ["nvapi-REVOKED-KEY-REMOVED",
-                "nvapi-REVOKED-KEY-REMOVED",
-                "nvapi-REVOKED-KEY-REMOVED"]
-    return keys
+        if k and k.strip(): keys.append(k.strip())
+    return sorted(set(keys))
 
 API_KEYS = _collect_api_keys()
+if not API_KEYS:
+    sys.exit(
+        "No NVIDIA API key in the environment.\n"
+        "  $env:NIM_API_KEY = 'nvapi-...'   (PowerShell)  or\n"
+        "  export NIM_API_KEY=nvapi-...    (bash)\n"
+        "Free keys: https://build.nvidia.com/"
+    )
 _key_idx = 0
 
 def _next_key():
