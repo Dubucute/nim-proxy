@@ -10,8 +10,10 @@
 
 'use strict';
 
+const dns = require('node:dns/promises');
 const http = require('http');
 const https = require('https');
+const net = require('node:net');
 
 const IMAGE_TYPES = new Set(['png', 'jpeg', 'jpg', 'gif', 'webp', 'bmp', 'tiff']);
 const MIME_EXT = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', tiff: 'image/tiff' };
@@ -83,17 +85,30 @@ async function urlToDataUri(url, {
     if (!['http:', 'https:'].includes(parsed.protocol)) {
       throw new ImageFetchError(`Unsupported image URL protocol "${parsed.protocol}"`);
     }
-    if (allowedHosts && !allowedHosts.has(parsed.hostname.toLowerCase())) {
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (allowedHosts && !allowedHosts.has(hostname)) {
       throw new ImageFetchError(
         `Image host "${parsed.hostname}" is not in ALLOWED_IMAGE_HOSTS. Inline the image as a data URI instead.`,
         403,
       );
     }
-    if (denyPrivate && isPrivateHost(parsed.hostname)) {
+    if (denyPrivate && isPrivateHost(hostname)) {
+      throw new ImageFetchError(`Refusing to fetch an image from a private address (${parsed.hostname}).`, 400);
+    }
+    let addresses;
+    try {
+      addresses = await dns.lookup(hostname, { all: true, verbatim: true });
+    } catch (err) {
+      throw new ImageFetchError(`Failed to resolve image host "${hostname}": ${err.message}`);
+    }
+    if (addresses.length === 0) {
+      throw new ImageFetchError(`Image host "${hostname}" did not resolve to an address`);
+    }
+    if (denyPrivate && addresses.some(({ address }) => isPrivateAddress(address))) {
       throw new ImageFetchError(`Refusing to fetch an image from a private address (${parsed.hostname}).`, 400);
     }
 
-    const response = await requestOnce(parsed, timeoutMs);
+    const response = await requestOnce(parsed, timeoutMs, addresses[0]);
 
     try {
       if ([301, 302, 303, 307, 308].includes(response.status)) {
@@ -154,13 +169,23 @@ async function urlToDataUri(url, {
   throw new ImageFetchError(`Too many redirects while fetching ${url}`);
 }
 
-function requestOnce(parsed, timeoutMs) {
+function requestOnce(parsed, timeoutMs, resolved) {
   const lib = parsed.protocol === 'https:' ? https : http;
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
+  const options = {
+    timeout: timeoutMs,
+    headers: { accept: 'image/*,*/*', 'user-agent': 'nim-proxy/vision' },
+    // Pin the validated address so DNS rebinding cannot change the connection target.
+    lookup(lookupHostname, lookupOptions, callback) {
+      if (typeof lookupOptions === 'function') { callback = lookupOptions; lookupOptions = {}; }
+      if (lookupOptions.all) callback(null, [{ address: resolved.address, family: resolved.family }]);
+      else callback(null, resolved.address, resolved.family);
+    },
+  };
+  if (parsed.protocol === 'https:' && net.isIP(hostname) === 0) options.servername = hostname;
+
   return new Promise((resolve, reject) => {
-    const req = lib.get(parsed, {
-      timeout: timeoutMs,
-      headers: { accept: 'image/*,*/*', 'user-agent': 'nim-proxy/vision' },
-    }, (res) => {
+    const req = lib.get(parsed, options, (res) => {
       clearTimeout(timer);
       resolve({ status: res.statusCode, headers: res.headers, body: res });
     });
@@ -181,11 +206,35 @@ function sniffMime(buffer) {
 }
 
 function isPrivateHost(hostname) {
-  const host = hostname.toLowerCase();
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal')) return true;
-  if (/^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host)) return true;
-  if (host === '0.0.0.0' || host === '::' || host === '::1') return true;
-  return false;
+  return net.isIP(host) ? isPrivateAddress(host) : false;
+}
+
+function isPrivateAddress(address) {
+  const family = net.isIP(address);
+  if (family === 4) {
+    const [a, b, c] = address.split('.').map(Number);
+    return a === 0 || a === 10 || a === 127 || a >= 224
+      || (a === 100 && b >= 64 && b <= 127)
+      || (a === 169 && b === 254)
+      || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168)
+      || (a === 192 && b === 0 && c === 0)
+      || (a === 198 && (b === 18 || b === 19))
+      || (a === 203 && b === 0 && c === 113);
+  }
+  if (family === 6) {
+    const ip = address.toLowerCase();
+    if (ip === '::' || ip === '::1') return true;
+    if (ip.startsWith('::ffff:')) return isPrivateAddress(ip.slice(7));
+    if (/^(fc|fd)[0-9a-f]{2}:/.test(ip)) return true;
+    if (/^fe[89ab][0-9a-f]:/.test(ip)) return true;
+    if (/^ff[0-9a-f]{2}:/.test(ip)) return true;
+    if (/^(64:ff9b:|100:|2001:db8:|2002:)/.test(ip)) return true;
+    return false;
+  }
+  return true;
 }
 
 function redactHost(parsed) {

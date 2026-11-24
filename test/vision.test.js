@@ -9,6 +9,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const dns = require('node:dns');
 const { urlToDataUri, inlineRemoteImages, hasImageContent, isPrivateHost, sniffMime, ImageFetchError } = require('../src/vision');
 const shared = require('../shared');
 const { withProxy } = require('./helpers/harness');
@@ -90,6 +91,43 @@ test('SSRF guard refuses private hosts unless explicitly allowed', async () => {
   assert.ok(!isPrivateHost('images.example.com'));
 });
 
+test('SSRF guard refuses a public-looking hostname that resolves to a private address', async (t) => {
+  let lookups = 0;
+  t.mock.method(dns.promises, 'lookup', async (hostname) => {
+    assert.equal(hostname, 'images.example.test');
+    lookups += 1;
+    return [{ address: '127.0.0.1', family: 4 }];
+  });
+
+  await assert.rejects(
+    () => urlToDataUri('http://images.example.test/red.png'),
+    /private address \(images\.example\.test\)/,
+  );
+  assert.equal(lookups, 1);
+});
+
+test('image fetch pins the validated DNS result for the connection', async (t) => {
+  const originalAgent = http.globalAgent;
+  const agent = new http.Agent();
+  http.globalAgent = agent;
+  t.after(() => { http.globalAgent = originalAgent; agent.destroy(); });
+
+  const srv = await withImageServer((req, res, png) => { res.writeHead(200, { 'content-type': 'image/png' }); res.end(png); });
+  let lookups = 0;
+  t.mock.method(dns.promises, 'lookup', async (hostname) => {
+    assert.equal(hostname, 'images.example.test');
+    lookups += 1;
+    return [{ address: '127.0.0.1', family: 4 }];
+  });
+
+  try {
+    const port = new URL(srv.base).port;
+    const uri = await urlToDataUri(`http://images.example.test:${port}/red.png`, { denyPrivate: false });
+    assert.match(uri, /^data:image\/png;base64,/);
+    assert.equal(lookups, 1, 'the connection must not perform a second DNS lookup');
+  } finally { await srv.close(); }
+});
+
 test('ALLOWED_IMAGE_HOSTS restricts which hosts may be fetched', async () => {
   const srv = await withImageServer((req, res, png) => { res.writeHead(200, { 'content-type': 'image/png' }); res.end(png); });
   try {
@@ -135,9 +173,9 @@ test('verified vision models are classified even without a name keyword', () => 
   assert.equal(shared.getVisionCapability('nvidia/nemotron-3-ultra-550b-a55b'), false);
 });
 
-test('the proxy inlines a remote image before calling upstream', async () => {
+test('the proxy inlines a remote image by default before calling upstream', async () => {
   const img = await withImageServer((req, res, png) => { res.writeHead(200, { 'content-type': 'image/png' }); res.end(png); });
-  const ctx = await withProxy({ INLINE_REMOTE_IMAGES: 'true', IMAGE_MAX_BYTES: '1048576', ALLOW_PRIVATE_IMAGE_HOSTS: 'true' });
+  const ctx = await withProxy({ IMAGE_MAX_BYTES: '1048576', ALLOW_PRIVATE_IMAGE_HOSTS: 'true' });
   try {
     const body = {
       model: 'meta/muse-glimmer-30b',
@@ -176,8 +214,8 @@ test('the SSRF default survives the proxy path: loopback refused unless opted in
   } finally { await img.close(); await ctx.close(); }
 });
 
-test('without the flag the URL passes through and the note explains the risk', async () => {
-  const ctx = await withProxy(); // INLINE_REMOTE_IMAGES defaults off
+test('when explicitly disabled the URL passes through and the note explains the risk', async () => {
+  const ctx = await withProxy({ INLINE_REMOTE_IMAGES: 'false' });
   try {
     const { status, headers } = await ctx.json('/v1/chat/completions?debug=true', {
       method: 'POST',
@@ -196,7 +234,7 @@ test('without the flag the URL passes through and the note explains the risk', a
 });
 
 test('a 403 on an image request tells the caller about URL blocking, not model capability', async () => {
-  const ctx = await withProxy();
+  const ctx = await withProxy({ INLINE_REMOTE_IMAGES: 'false' });
   try {
     ctx.stub.setMode(require('./helpers/stub-upstream').MODES.FORBIDDEN_CAPABILITY);
     const { status, body } = await ctx.json('/v1/chat/completions', {

@@ -296,12 +296,9 @@ Two facts about NVIDIA's hosted gateway shape how you should do it:
    plus an explicit allow-list in `shared.js` (`KNOWN_VISION_MODELS`). If a model is missing,
    add it there — or just try it; the proxy does not gate on the flag.
 
-With `INLINE_REMOTE_IMAGES=true` the proxy downloads remote images itself and forwards them
-as data URIs, so ordinary clients keep sending URLs:
-
-```bash
-INLINE_REMOTE_IMAGES=true npm start
-```
+Remote images are inlined by default: the proxy downloads them and forwards data URIs,
+so ordinary clients can keep sending URLs. Set `INLINE_REMOTE_IMAGES=false` to pass remote
+URLs through unchanged.
 
 ```python
 client = OpenAI(base_url="http://localhost:3000/v1", api_key="unused")
@@ -320,18 +317,18 @@ print(r.choices[0].message.content)
 Measured: 6.0s, `prompt_tokens 427 / completion 165`, with ~630 chars of
 `reasoning_content` streamed before the answer.
 
-**Enabling this turns your proxy into an HTTP client for caller-supplied URLs**, so it is
-off by default and guarded:
+**This turns your proxy into an HTTP client for caller-supplied URLs**, so it is guarded:
 
 | Guard | Default |
 |---|---|
-| Private/loopback/metadata addresses (`169.254.169.254`, `127.0.0.1`, RFC1918…) | refused — `ALLOW_PRIVATE_IMAGE_HOSTS=true` to permit |
+| Private/loopback/metadata addresses, including hostnames resolving to them (`169.254.169.254`, `127.0.0.1`, RFC1918…) | refused — `ALLOW_PRIVATE_IMAGE_HOSTS=true` to permit |
+| Validated DNS address pinned for the connection | enforced |
 | Redirect hops re-validated against the same rules | 3 max |
 | Image size | 8 MB (`IMAGE_MAX_BYTES`) |
 | Content must actually be an image (magic bytes beat a lying `content-type`) | enforced |
 | Optional host allow-list | `ALLOWED_IMAGE_HOSTS=cdn.example.com,images.example.com` |
 
-If you leave the flag off, inline images yourself as data URIs — that always works and
+If you disable inlining, inline images yourself as data URIs — that always works and
 costs nothing but request size.
 
 ### Reasoning models (`reasoning_content`)
@@ -727,7 +724,7 @@ annotated list.
 | `KEY_COOLDOWN_MS` | `30000` | Base rate-limit cooldown per key |
 | `CORS_ORIGIN` | `*` | `*` or comma-separated allow-list |
 | `ALLOW_BODY_API_KEY` | `true` | Accept `apiKey` in the JSON body |
-| `INLINE_REMOTE_IMAGES` | `false` | Download `image_url` parts and resend them as data URIs (see [Vision](#-vision-images)) |
+| `INLINE_REMOTE_IMAGES` | `true` | Download `image_url` parts and resend them as data URIs; `false` passes URLs through (see [Vision](#-vision-images)) |
 | `IMAGE_MAX_BYTES` | `8388608` | Cap for one downloaded image |
 | `IMAGE_TIMEOUT_MS` | `15000` | Per-image download timeout |
 | `ALLOWED_IMAGE_HOSTS` | all public | Comma-separated host allow-list for image downloads |

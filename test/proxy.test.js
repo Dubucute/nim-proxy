@@ -34,7 +34,7 @@ test('tools, response_format and multimodal content pass through untouched', asy
         tools: [{ type: 'function', function: { name: 'get_weather', parameters: {} } }],
         tool_choice: 'auto',
         response_format: { type: 'json_object' },
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'what sun?' }, { type: 'image_url', image_url: { url: 'https://x/y.png' } }] }],
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'what sun?' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }] }],
       },
     });
     const sent = ctx.stub.lastRequest().body;

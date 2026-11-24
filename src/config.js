@@ -94,10 +94,9 @@ function load(env = process.env) {
     requestLogSize: num(env, 'REQUEST_LOG_SIZE', 10, 10000) ?? DEFAULTS.REQUEST_LOG_SIZE,
 
     // NVIDIA's hosted gateway refuses to fetch external image URLs (403), so the
-    // proxy downloads them and inlines them as data URIs. Off by default until a
-    // caller opts in, because it makes the proxy an HTTP client for caller-chosen
-    // URLs — see ALLOWED_IMAGE_HOSTS before enabling on a public deployment.
-    inlineRemoteImages: bool(env, 'INLINE_REMOTE_IMAGES') ?? false,
+    // proxy downloads them and inlines them as data URIs. Callers can opt out with
+    // INLINE_REMOTE_IMAGES=false; private hosts remain blocked unless explicitly allowed.
+    inlineRemoteImages: bool(env, 'INLINE_REMOTE_IMAGES') ?? true,
     imageMaxBytes: num(env, 'IMAGE_MAX_BYTES', 1024, 64 * 1024 * 1024) ?? 8 * 1024 * 1024,
     imageTimeoutMs: num(env, 'IMAGE_TIMEOUT_MS', 500) ?? 15000,
     // Private/loopback image hosts are refused by default (SSRF + cloud metadata

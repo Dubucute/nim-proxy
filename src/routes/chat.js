@@ -66,8 +66,8 @@ async function runCompletion(req, res, deps, { body, shape }) {
   const { request: built, notes: buildNotes } = buildNimRequest(body);
 
   // NVIDIA's gateway will not fetch external image URLs (it answers a bare
-  // `403 Forbidden`), so vision requests carrying https:// image parts must be
-  // inlined as data URIs before they go upstream. Opt-in via INLINE_REMOTE_IMAGES.
+  // `403 Forbidden`), so vision requests carrying https:// image parts are inlined
+  // as data URIs by default. Opt out with INLINE_REMOTE_IMAGES=false.
   let nimRequest = built;
   const notes = [...buildNotes];
   if (config.inlineRemoteImages && hasImageContent(built.messages)) {
